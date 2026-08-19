@@ -22,11 +22,17 @@ bld/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
-
+.vs/
 # .NET Core
 project.lock.json
 project.fragment.lock.json
 artifacts/
+node_modules/
+*.dll
+*.exe
+bin/
+dist/
+publish/
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt

@@ -1,0 +1,1722 @@
+Under har jeg formulert den slik at den kan *limes direkte inn i Codex som hovedspec for løsningen*. Jeg har også lagt inn noen funksjoner som følger naturlig av modellen din, blant annet historikk, dokumentasjon på LCK-svar, avvikshåndtering og dashboard.
+
+# Funksjonell spesifikasjon – Lovregister og Law Compliance Check (LCK)
+
+## 1. Formål
+
+Utvikle en webbasert SaaS-løsning for virksomheters arbeid med lovetterlevelse og compliance.
+
+Systemet skal gjøre det enkelt for større virksomheter å:
+
+* etablere egne lovlister basert på norske lover og forskrifter
+* velge hvilke konkrete paragrafer som er relevante for virksomheten
+* dokumentere hvordan de enkelte paragrafene påvirker virksomheten
+* dokumentere hvilke tiltak og handlinger virksomheten har etablert for å møte lovkravene
+* opprette Law Compliance Checks (LCK)
+* kontrollere compliance på virksomhets-, region-, avdelings-, lokasjons- eller brukernivå
+* beregne en samlet compliance-score
+* identifisere manglende samsvar
+* følge opp avvik og tiltak
+* motta varsler når relevante lover eller forskrifter endres
+* bruke AI til å foreslå relevante lovkrav, vurderinger og kontrollspørsmål
+
+Løsningen skal være særlig egnet for HSEQ/HMS-, kvalitet-, compliance- og ledelsesfunksjoner i mellomstore og store virksomheter.
+
+---
+
+# 2. Grunnprinsipp
+
+Systemet skal bygges rundt følgende sammenheng:
+
+*Virksomhet → Lovliste → Lov/forskrift → Paragraf → Virksomhetens vurdering → Tiltak → LCK-spørsmål → Respondent → Svar → Compliance-score → Avvik → Tiltak/oppfølging*
+
+En paragraf skal være den sentrale enheten i systemet.
+
+En paragraf kan:
+
+* inngå i én eller flere lovlister
+* ha en virksomhetsspesifikk vurdering
+* ha registrerte tiltak
+* ha ett eller flere LCK-spørsmål
+* være relevant for bestemte deler av organisasjonen
+* inngå i én eller flere LCK-er
+* ha historikk knyttet til lovendringer
+
+---
+
+# 3. Multi-tenant / virksomheter
+
+Systemet skal støtte flere separate kunder.
+
+Hver kunde skal ha sitt eget avgrensede område og skal ikke kunne se informasjon fra andre kunder.
+
+En kunde representerer én virksomhet/organisasjon.
+
+Eksempel:
+
+*Kunde A*
+
+* Region Nord
+* Region Midt
+* Region Sør
+* Region Vest
+
+*Kunde B*
+
+* Fabrikk 1
+* Fabrikk 2
+* Administrasjon
+
+Organisasjonsstrukturen skal være fleksibel og kunne tilpasses den enkelte virksomheten.
+
+---
+
+# 4. Roller og tilgang
+
+Systemet skal minimum ha følgende roller.
+
+## 4.1 Systemadministrator
+
+Administrerer selve SaaS-løsningen.
+
+Kan blant annet:
+
+* administrere kunder
+* administrere globale systeminnstillinger
+* administrere integrasjonen mot Lovdata
+* administrere AI-funksjoner
+* administrere standardiserte lovliste-maler
+* administrere standardiserte LCK-spørsmål
+* overvåke systemstatus
+
+Systemadministrator skal ikke automatisk ha tilgang til kundenes interne compliance-data dersom dette ikke er nødvendig.
+
+---
+
+## 4.2 Kundeadministrator / HSEQ-administrator
+
+Har full administrativ tilgang innenfor egen virksomhet.
+
+Kan:
+
+* administrere virksomhetsprofil
+* administrere organisasjonsstruktur
+* opprette brukere
+* tildele roller
+* opprette lovlister
+* legge til lover, forskrifter og paragrafer
+* redigere virksomhetens vurderinger av lovkrav
+* opprette tiltak
+* opprette LCK-spørsmål
+* opprette og sende LCK-er
+* velge respondenter
+* se alle LCK-resultater
+* se compliance-score
+* se rapporter
+* registrere og følge opp avvik
+* behandle lovendringer
+* godkjenne eller forkaste AI-genererte forslag
+
+---
+
+## 4.3 Leser
+
+Kan:
+
+* se virksomhetens lovlister
+* lese lover og forskrifter
+* se relevante paragrafer
+* se virksomhetens vurdering av paragrafene
+* se registrerte tiltak dersom administrator har gjort disse tilgjengelige
+
+Kan ikke:
+
+* redigere lovlister
+* redigere vurderinger
+* opprette LCK
+* administrere brukere
+
+---
+
+## 4.4 LCK-respondent
+
+Kan:
+
+* motta LCK
+* svare på spørsmål som er sendt til vedkommende
+* skrive kommentarer
+* laste opp dokumentasjon
+* markere spørsmål som «Ikke relevant»
+* se status på egne LCK-er
+
+Respondenten skal ikke nødvendigvis ha tilgang til å redigere selve lovlisten.
+
+En bruker kan ha flere roller samtidig.
+
+---
+
+# 5. Virksomhetsprofil
+
+Når en kunde opprettes skal virksomheten kunne etablere en virksomhetsprofil.
+
+Virksomhetsprofilen skal blant annet kunne inneholde:
+
+* virksomhetsnavn
+* organisasjonsnummer
+* bransje
+* virksomhetsbeskrivelse
+* antall ansatte
+* geografisk virksomhet
+* antall lokasjoner
+* organisasjonsstruktur
+* type aktivitet
+* om virksomheten har verksted
+* om virksomheten har produksjon
+* om virksomheten håndterer kjemikalier
+* om virksomheten har kjøretøy
+* om virksomheten håndterer avfall
+* om virksomheten har utslipp
+* om virksomheten har bygg og eiendom
+* om virksomheten har særskilte brannrisikoer
+* relevante ISO-standarder
+* andre relevante virksomhetsforhold
+
+Det skal også finnes et større fritekstfelt:
+
+*«Beskriv virksomheten og aktivitetene deres.»*
+
+Denne informasjonen skal kunne brukes av AI-funksjonen til å foreslå relevante lovkrav.
+
+---
+
+# 6. Organisasjonsstruktur
+
+Kundeadministrator skal kunne opprette en fleksibel organisasjonsstruktur.
+
+Eksempel:
+
+*Virksomhet*
+
+→ Region
+
+→ Avdeling
+
+→ Lokasjon
+
+→ Bruker
+
+Systemet skal ikke låse kunden til akkurat disse navnene.
+
+Kunden skal eksempelvis kunne bruke:
+
+* konsern
+* selskap
+* divisjon
+* region
+* avdeling
+* lokasjon
+* prosjekt
+* verksted
+* depot
+
+Administrator skal kunne:
+
+* opprette organisasjonsenheter
+* opprette underenheter
+* flytte enheter
+* deaktivere enheter
+* knytte brukere til én eller flere organisasjonsenheter
+
+---
+
+# 7. Lovdata-integrasjon
+
+Systemet skal benytte eksisterende API-integrasjon mot Lovdata.
+
+Lovdata skal være primær kilde for:
+
+* lover
+* forskrifter
+* kapitler
+* paragrafer
+* paragraftekst
+* metadata
+* ikrafttredelsesdato
+* endringer
+* historikk der dette er tilgjengelig gjennom API-et
+
+Systemet skal ikke gjøre det nødvendig for administrator å skrive inn selve lovteksten manuelt.
+
+---
+
+# 8. Søk i lover og forskrifter
+
+Administrator skal kunne søke i Lovdata-materialet direkte fra løsningen.
+
+Søket bør kunne filtreres på blant annet:
+
+* lov
+* forskrift
+* navn
+* paragraf
+* tema
+* nøkkelord
+
+Eksempel:
+
+Administrator søker etter:
+
+*Arbeidsmiljøloven*
+
+Systemet viser loven med kapitler og paragrafer.
+
+Administrator kan deretter velge:
+
+* hele loven
+* bestemte kapitler
+* bestemte paragrafer
+
+som skal inkluderes i virksomhetens lovliste.
+
+---
+
+# 9. Lovlister
+
+Administrator skal kunne opprette et ubegrenset antall lovlister.
+
+Eksempler:
+
+* Arbeidsmiljø
+* Ytre miljø
+* Brannsikkerhet
+* Verksted
+* Kjemikalier
+* Trafikksikkerhet
+* Personvern
+* Kvalitet
+* HMS
+* ISO 14001
+* ISO 45001
+
+En lov eller paragraf skal kunne inngå i flere lovlister.
+
+---
+
+# 10. Opprettelse av lovliste
+
+Ved opprettelse skal administrator kunne velge:
+
+*Opprett tom lovliste*
+
+eller
+
+*Opprett lovliste med AI-forslag*
+
+eller
+
+*Opprett fra mal*
+
+---
+
+# 11. Lovliste – tabellvisning
+
+Lovlisten skal presenteres som en oversiktlig tabell.
+
+Standard kolonner skal være:
+
+| Lov/forskrift | Paragraf | Lovkrav | Hvordan påvirker dette oss? | Våre tiltak/handlinger | LCK | Status |
+| ------------- | -------- | ------- | --------------------------- | ---------------------- | --- | ------ |
+
+Eksempel:
+
+| Arbeidsmiljøloven | § 4-1 | Lovtekst | Kravet gjelder vårt systematiske arbeid med arbeidsmiljø | Risikovurdering, vernerunder og handlingsplan | 3 spørsmål | Aktiv |
+
+---
+
+# 12. Konfigurerbare kolonner
+
+Administrator skal kunne konfigurere hvilke kolonner en lovliste inneholder.
+
+Det skal kunne:
+
+* opprettes nye kolonner
+* endres navn på egendefinerte kolonner
+* endres rekkefølge
+* skjules kolonner
+* slettes egendefinerte kolonner
+
+Enkelte systemkolonner skal være faste og kan ikke slettes.
+
+Dette gjelder minimum:
+
+* lov/forskrift
+* paragraf
+* paragraftekst
+* LCK
+* endringsstatus
+
+---
+
+# 13. Paragrafdetaljer
+
+Når en bruker klikker på en paragraf skal det åpnes en detaljvisning.
+
+Denne skal minimum vise:
+
+### Lov/forskrift
+
+Navn på regelverket.
+
+### Paragraf
+
+Eksempel:
+
+*Arbeidsmiljøloven § 4-1*
+
+### Gjeldende lovtekst
+
+Hentes fra Lovdata.
+
+### Hvordan påvirker dette virksomheten?
+
+Virksomhetens egen vurdering.
+
+### Våre tiltak/handlinger
+
+Beskrivelse av hva virksomheten gjør for å etterleve kravet.
+
+### LCK-spørsmål
+
+Liste over kontrollspørsmål knyttet til paragrafen.
+
+### Lovendringer
+
+Historikk over endringer.
+
+### Compliance-status
+
+Siste tilgjengelige status fra LCK-er.
+
+---
+
+# 14. AI-genererte forslag til lovliste
+
+Systemet skal kunne bruke virksomhetsprofilen til å foreslå relevante lover, forskrifter og paragrafer.
+
+Eksempel:
+
+Virksomheten beskriver seg som:
+
+Busselskap med 2 500 ansatte, 20 depoter, egne verksteder, kjemikaliehåndtering, drivstoffanlegg, elektriske busser, vaskehaller og virksomhet i hele Norge.
+
+
+Systemet skal kunne foreslå aktuelle lovområder, eksempelvis:
+
+* arbeidsmiljø
+* systematisk HMS
+* kjemikalier
+* brann
+* elektriske anlegg
+* ytre miljø
+* avfall
+* verksteddrift
+* kjøretøy
+* trafikksikkerhet
+
+Systemet skal deretter foreslå konkrete lover, forskrifter og relevante paragrafer.
+
+---
+
+# 15. Godkjenning av AI-forslag
+
+AI skal aldri automatisk gjøre et lovkrav til en del av virksomhetens godkjente lovliste.
+
+AI-genererte forslag skal vises med status:
+
+*Forslag*
+
+Administrator skal deretter kunne velge:
+
+* Godkjenn
+* Rediger og godkjenn
+* Avvis
+* Marker som ikke relevant
+
+Administrator skal kunne godkjenne flere forslag samtidig.
+
+---
+
+# 16. AI – «Hvordan påvirker paragrafen virksomheten?»
+
+For hver paragraf skal systemet kunne foreslå tekst til feltet:
+
+*Hvordan påvirker dette virksomheten?*
+
+Forslaget skal være basert på:
+
+* paragrafens innhold
+* virksomhetsprofil
+* virksomhetens aktiviteter
+* relevant organisatorisk kontekst
+
+Eksempel:
+
+Paragraf:
+
+Krav om risikovurdering av kjemikalier.
+
+AI-forslag:
+
+Kravet er relevant fordi virksomheten benytter kjemikalier i verksteder, vaskehaller og ved vedlikehold. Virksomheten må derfor kartlegge hvilke kjemikalier som brukes, vurdere eksponeringsrisiko og etablere nødvendige risikoreduserende tiltak.
+
+
+Administrator skal kunne:
+
+* godkjenne
+* redigere
+* regenerere
+* avvise
+
+forslaget.
+
+---
+
+# 17. AI – forslag til tiltak
+
+Systemet skal kunne foreslå:
+
+*Tiltak/handlinger virksomheten kan benytte for å oppfylle kravet.*
+
+Eksempel:
+
+* kjemikalieregister
+* risikovurdering
+* substitusjonsvurdering
+* sikkerhetsdatablad
+* opplæring
+* verneutstyr
+* årlig kontroll
+
+Forslaget skal alltid behandles som et forslag og må godkjennes av administrator.
+
+---
+
+# 18. Law Compliance Check – LCK
+
+LCK står for:
+
+*Law Compliance Check*
+
+En LCK er en kontroll som sendes til utvalgte personer eller organisatoriske enheter for å kontrollere faktisk etterlevelse av utvalgte lovkrav.
+
+---
+
+# 19. LCK-spørsmål
+
+Ett eller flere LCK-spørsmål skal kunne knyttes til en paragraf.
+
+Eksempel:
+
+Paragraf:
+
+Krav om dokumentert risikovurdering.
+
+LCK-spørsmål:
+
+*Har avdelingen en oppdatert og dokumentert risikovurdering som dekker aktivitetene ved lokasjonen?*
+
+---
+
+# 20. AI-generering av LCK-spørsmål
+
+Administrator skal kunne velge:
+
+*Foreslå LCK-spørsmål*
+
+AI skal da analysere:
+
+* paragraf
+* lovkrav
+* virksomhetens vurdering
+* virksomhetens tiltak
+* virksomhetsprofil
+
+og foreslå ett eller flere kontrollspørsmål.
+
+Administrator skal kunne:
+
+* godkjenne
+* redigere
+* slette
+* regenerere
+
+spørsmålene.
+
+---
+
+# 21. Opprettelse av LCK
+
+Administrator skal kunne opprette en ny kontroll gjennom en veiviser.
+
+### Steg 1 – Navn
+
+Eksempel:
+
+*LCK Arbeidsmiljø Q1 2027*
+
+### Steg 2 – Velg lovliste
+
+Eksempel:
+
+Arbeidsmiljø.
+
+### Steg 3 – Velg paragrafer
+
+Administrator skal kunne:
+
+* inkludere hele lovlisten
+* velge bestemte lover
+* velge bestemte paragrafer
+* velge bestemte LCK-spørsmål
+
+### Steg 4 – Velg respondenter
+
+Administrator skal kunne velge:
+
+* hele virksomheten
+* region
+* avdeling
+* lokasjon
+* bruker
+* flere individuelle brukere
+
+Eksempel:
+
+Kun regionsdirektører.
+
+Eller:
+
+Alle avdelingsledere.
+
+### Steg 5 – Frist
+
+Administrator angir svarfrist.
+
+### Steg 6 – Innstillinger
+
+Eksempel:
+
+* Krev kommentar ved «Nei»
+* Krev kommentar ved «Delvis»
+* Krev begrunnelse ved «Ikke relevant»
+* Tillat vedlegg
+* Send påminnelser
+
+### Steg 7 – Send LCK
+
+---
+
+# 22. Svaralternativer
+
+Standard svaralternativer skal være:
+
+### Ja
+
+Kravet vurderes som fullt etterlevd.
+
+Score:
+
+*100 %*
+
+### Delvis
+
+Kravet vurderes som delvis etterlevd.
+
+Score:
+
+*50 %*
+
+### Nei
+
+Kravet vurderes som ikke etterlevd.
+
+Score:
+
+*0 %*
+
+### Ikke relevant
+
+Kravet vurderes som ikke relevant for den aktuelle respondenten eller organisasjonsenheten.
+
+Dette svaret skal:
+
+* ikke påvirke compliance-score
+* registreres i rapporten
+* være søkbart og filtrerbart
+* vise respondentens begrunnelse dersom dette kreves
+
+Administrator skal kunne kreve begrunnelse dersom «Ikke relevant» velges.
+
+---
+
+# 23. Dokumentasjon av svar
+
+Respondenten skal kunne legge til:
+
+* kommentar
+* dokumentasjon
+* bilde
+* PDF
+* dokument
+* lenke
+
+på et LCK-svar.
+
+Eksempel:
+
+Spørsmål:
+
+*Har lokasjonen gjennomført årlig brannøvelse?*
+
+Svar:
+
+*Ja*
+
+Dokumentasjon:
+
+Brannøvelse_2027.pdf
+
+---
+
+# 24. Compliance-score
+
+Systemet skal automatisk beregne compliance-score.
+
+Standardberegning:
+
+*Ja = 100*
+
+*Delvis = 50*
+
+*Nei = 0*
+
+*Ikke relevant = ekskluderes*
+
+Eksempel:
+
+20 spørsmål:
+
+* 14 Ja
+* 2 Delvis
+* 2 Nei
+* 2 Ikke relevant
+
+Beregningsgrunnlag:
+
+18 spørsmål.
+
+Score:
+
+(14 × 100 + 2 × 50 + 2 × 0) / 18
+
+= *83,3 % compliance*
+
+---
+
+# 25. Compliance-score på flere nivåer
+
+Systemet skal kunne beregne score på:
+
+* virksomhetsnivå
+* regionnivå
+* avdelingsnivå
+* lokasjonsnivå
+* bruker
+* lovliste
+* lov
+* forskrift
+* paragraf
+* LCK
+* tema
+
+Eksempel:
+
+### Total compliance
+
+87 %
+
+### Arbeidsmiljø
+
+94 %
+
+### Ytre miljø
+
+82 %
+
+### Brannsikkerhet
+
+71 %
+
+---
+
+# 26. Dashboard
+
+Administrator skal ha et compliance-dashboard.
+
+Dashboardet skal minimum vise:
+
+### Total compliance-score
+
+Eksempel:
+
+*87 %*
+
+### Antall kontrollerte krav
+
+234
+
+### Ikke relevant
+
+21
+
+### Delvis samsvar
+
+18
+
+### Ikke samsvar
+
+9
+
+### Åpne avvik
+
+12
+
+### Ubesvarte LCK-er
+
+7
+
+### Lovendringer som krever vurdering
+
+4
+
+---
+
+# 27. Visualisering
+
+Dashboardet bør kunne vise:
+
+* compliance per region
+* compliance per avdeling
+* compliance per lokasjon
+* compliance per lovliste
+* compliance per lov
+* compliance over tid
+* antall avvik
+* antall lovendringer
+* svarfordeling
+
+Administrator skal kunne klikke seg fra overordnet informasjon og ned til den enkelte paragraf.
+
+Eksempel:
+
+*Brannsikkerhet – 72 %*
+
+→ Region Midt – 61 %
+
+→ Trondheim depot – 48 %
+
+→ § XX – Manglende samsvar
+
+---
+
+# 28. Rapportering
+
+Administrator skal kunne generere rapporter.
+
+Rapporter skal kunne filtreres på:
+
+* periode
+* LCK
+* lovliste
+* lov
+* forskrift
+* paragraf
+* region
+* avdeling
+* lokasjon
+* bruker
+* svarstatus
+* compliance-status
+
+---
+
+# 29. LCK-sluttrapport
+
+Når en LCK er avsluttet skal systemet kunne generere en sluttrapport.
+
+Rapporten skal minimum vise:
+
+* navn på kontroll
+* periode
+* respondenter
+* svarprosent
+* samlet compliance-score
+* score per organisatorisk enhet
+* score per lovområde
+* score per paragraf
+* alle «Delvis»
+* alle «Nei»
+* alle «Ikke relevant»
+* kommentarer
+* dokumentasjon
+* registrerte avvik
+
+Rapporten skal tydelig vise hvilke krav respondentene har vurdert som *Ikke relevant*, selv om disse ikke inngår i selve compliance-scoren.
+
+---
+
+# 30. Avvik
+
+Svar:
+
+*Nei*
+
+skal kunne opprette et compliance-avvik.
+
+Administrator skal kunne velge om dette skal skje:
+
+* automatisk
+* etter manuell vurdering
+
+Svar:
+
+*Delvis*
+
+skal også kunne opprettes som avvik dersom administrator ønsker dette.
+
+---
+
+# 31. Avviksinformasjon
+
+Et avvik skal minimum inneholde:
+
+* tilhørende lov
+* paragraf
+* LCK-spørsmål
+* respondent
+* organisasjonsenhet
+* svar
+* kommentar
+* dokumentasjon
+* dato
+* ansvarlig
+* frist
+* status
+
+Statuser:
+
+* Åpent
+* Under behandling
+* Tiltak etablert
+* Til verifisering
+* Lukket
+
+---
+
+# 32. Tiltak
+
+Administrator skal kunne opprette tiltak direkte fra:
+
+* LCK-svar
+* avvik
+* paragraf
+* lovendring
+
+Tiltaket skal kunne inneholde:
+
+* beskrivelse
+* ansvarlig
+* frist
+* status
+* dokumentasjon
+* kommentar
+
+---
+
+# 33. Lovendringer
+
+Systemet skal kontinuerlig kontrollere om lover eller forskrifter som finnes i kundenes lovlister har blitt endret.
+
+Når en relevant endring oppdages skal lovkravet markeres med eksempelvis:
+
+*Ny lovendring*
+
+---
+
+# 34. Historikk ved lovendring
+
+Systemet skal så langt Lovdata-integrasjonen tillater lagre:
+
+* tidligere versjon
+* ny versjon
+* dato for endring
+* ikrafttredelsesdato
+* hvilke deler som er endret
+
+Eksisterende virksomhetsvurderinger skal ikke slettes ved lovendring.
+
+---
+
+# 35. AI-analyse av lovendringer
+
+Når en lovendring registreres skal AI kunne generere:
+
+### Hva er endret?
+
+Kort beskrivelse av forskjellen mellom gammel og ny regeltekst.
+
+### Hva betyr dette for virksomheten?
+
+Analyse basert på virksomhetsprofilen.
+
+### Eksempel
+
+Praktisk eksempel på hvordan endringen kan påvirke virksomheten.
+
+### Anbefalt handling
+
+Forslag til hvordan virksomheten bør håndtere endringen.
+
+---
+
+# 36. Behandling av lovendring
+
+Administrator skal kunne klassifisere endringen som:
+
+* Ikke vurdert
+* Under vurdering
+* Ikke relevant
+* Ingen tiltak nødvendig
+* Krever tiltak
+* Ferdig behandlet
+
+---
+
+# 37. Handlinger fra lovendring
+
+Administrator skal kunne:
+
+* oppdatere virksomhetens vurdering
+* oppdatere tiltak
+* endre LCK-spørsmål
+* opprette nytt LCK-spørsmål
+* opprette tiltak
+* opprette avvik
+* sende ny LCK
+
+Eksempel:
+
+En lovendring påvirker verkstedene.
+
+Administrator skal kunne velge:
+
+*Opprett LCK basert på denne lovendringen*
+
+og sende kontrollen kun til verkstedledere.
+
+---
+
+# 38. Varsling om lovendringer
+
+Administrator skal varsles når en relevant lovendring oppdages.
+
+Varsling skal kunne skje gjennom:
+
+* systemvarsel
+* e-post
+
+---
+
+# 39. E-post om lovendring
+
+Varslingen skal være lett forståelig og ikke bare inneholde selve lovteksten.
+
+Eksempel:
+
+### Emne
+
+*Lovendring registrert – Arbeidsmiljøloven § XX*
+
+### Hva er endret?
+
+Kort AI-generert forklaring.
+
+### Hva betyr dette for virksomheten?
+
+Beskrivelse basert på virksomhetsprofil.
+
+### Eksempel
+
+Konkret praktisk eksempel.
+
+### Anbefalt handling
+
+Forslag til videre vurdering.
+
+### Lenke
+
+*Åpne lovendringen i systemet*
+
+---
+
+# 40. AI-generert innhold skal merkes
+
+Alt AI-generert innhold skal tydelig merkes med:
+
+*AI-generert forslag*
+
+AI skal ikke fremstille et forslag som en endelig juridisk vurdering.
+
+Administrator skal være ansvarlig for å godkjenne innholdet.
+
+---
+
+# 41. AI skal bruke virksomhetskontekst
+
+Ved generering av forslag skal AI så langt det er relevant bruke:
+
+* virksomhetsprofil
+* organisasjonsstruktur
+* bransje
+* virksomhetstype
+* eksisterende lovlister
+* eksisterende vurderinger
+* eksisterende tiltak
+
+Dette gjør at forslagene skal bli virksomhetsspesifikke og ikke bare generelle juridiske forklaringer.
+
+---
+
+# 42. Sporbarhet
+
+Systemet skal ha historikk på viktige endringer.
+
+Det skal eksempelvis registreres:
+
+* hvem som la til en paragraf
+* hvem som fjernet en paragraf
+* hvem som endret virksomhetens vurdering
+* hvem som godkjente et AI-forslag
+* hvem som endret tiltak
+* hvem som opprettet en LCK
+* hvem som svarte på en LCK
+* når et svar ble endret
+* hvem som lukket et avvik
+* hvem som behandlet en lovendring
+
+Historikken skal inneholde:
+
+* bruker
+* dato/tid
+* handling
+* gammel verdi der relevant
+* ny verdi der relevant
+
+---
+
+# 43. Versjonering
+
+Virksomhetens vurdering av en paragraf skal ha historikk.
+
+Eksempel:
+
+*Versjon 1*
+
+12.01.2027
+
+*Versjon 2*
+
+15.06.2027
+
+Administrator skal kunne se tidligere versjoner.
+
+Dette er spesielt viktig ved lovendringer.
+
+---
+
+# 44. Status på lovkrav
+
+Hver paragraf i lovlisten bør kunne ha en overordnet status.
+
+Eksempel:
+
+* Ikke vurdert
+* Relevant
+* Ikke relevant
+* Under vurdering
+* Samsvar
+* Delvis samsvar
+* Ikke samsvar
+* Lovendring til vurdering
+
+---
+
+# 45. Søk og filtrering
+
+Alle lovlister skal kunne søkes og filtreres.
+
+Administrator skal eksempelvis kunne filtrere:
+
+*Vis alle paragrafer som:*
+
+* har compliance under 80 %
+* har åpne avvik
+* har lovendringer
+* mangler virksomhetsvurdering
+* mangler tiltak
+* mangler LCK-spørsmål
+* er vurdert som ikke relevant
+
+---
+
+# 46. Lovliste-maler
+
+Systemet skal kunne tilby ferdige forslag/maler.
+
+Eksempler:
+
+### Arbeidsmiljø
+
+### Ytre miljø
+
+### Brannsikkerhet
+
+### Verksteddrift
+
+### Kjemikaliehåndtering
+
+### ISO 14001
+
+### ISO 45001
+
+Malene skal bestå av foreslåtte lover, forskrifter og paragrafer.
+
+De skal aldri automatisk bli gjeldende lovliste for kunden.
+
+Kunden må godkjenne hvilke krav som er relevante.
+
+---
+
+# 47. Oppstartsveiviser
+
+Nye kunder bør få en enkel onboarding.
+
+### Steg 1
+
+Beskriv virksomheten.
+
+### Steg 2
+
+Opprett organisasjonen.
+
+### Steg 3
+
+Velg aktuelle temaer.
+
+Eksempel:
+
+* Arbeidsmiljø
+* Ytre miljø
+* Brann
+* Kjemikalier
+* Verksted
+* ISO
+
+### Steg 4
+
+AI foreslår lovkrav.
+
+### Steg 5
+
+Administrator gjennomgår forslagene.
+
+### Steg 6
+
+Lovlisten opprettes.
+
+### Steg 7
+
+Systemet foreslår LCK-spørsmål.
+
+---
+
+# 48. Brukervennlighet
+
+En sentral del av produktet skal være at arbeidet med lovlister oppleves enkelt.
+
+Brukeren skal ikke måtte navigere gjennom tunge juridiske dokumenter for å administrere lovlisten.
+
+Systemet skal derfor prioritere:
+
+* oversiktlige tabeller
+* søk
+* filtrering
+* massevalg
+* drag-and-drop der dette er hensiktsmessig
+* tydelige statuser
+* sidepanel for paragrafdetaljer
+* rask redigering
+* AI-forslag direkte i arbeidsflaten
+
+Eksempel:
+
+Administrator skal kunne åpne en paragraf og på samme skjerm se:
+
+*Lovtekst*
+
+*Hvordan påvirker dette oss?*
+
+*Våre tiltak*
+
+*LCK-spørsmål*
+
+*Compliance*
+
+*Lovendringer*
+
+uten å måtte navigere mellom mange forskjellige sider.
+
+---
+
+# 49. Massehandlinger
+
+For store virksomheter må administrator kunne håndtere mange krav samtidig.
+
+Systemet skal derfor støtte:
+
+* velg flere paragrafer
+* legg til i lovliste
+* fjern fra lovliste
+* generer AI-forslag
+* opprett LCK
+* endre status
+* eksportere
+
+---
+
+# 50. Varslinger
+
+Systemet skal minimum kunne sende varsler ved:
+
+* ny LCK
+* kommende LCK-frist
+* utløpt LCK-frist
+* nytt avvik
+* tiltak med kommende frist
+* tiltak med utløpt frist
+* lovendring
+* lovendring som ikke er behandlet
+
+---
+
+# 51. LCK-påminnelser
+
+Administrator skal kunne konfigurere automatiske påminnelser.
+
+Eksempel:
+
+* 7 dager før frist
+* 3 dager før frist
+* på fristdato
+* 3 dager etter frist
+
+---
+
+# 52. Arkiv
+
+Avsluttede LCK-er skal arkiveres.
+
+Historiske resultater skal ikke endres selv om:
+
+* LCK-spørsmålet senere endres
+* paragrafen senere endres
+* organisasjonsstrukturen endres
+
+Rapporten skal vise det innholdet og lovgrunnlaget som gjaldt da kontrollen ble gjennomført.
+
+---
+
+# 53. Eksport
+
+Rapporter og lovlister bør kunne eksporteres til minimum:
+
+* Excel
+* PDF
+
+Senere kan støtte for Word vurderes.
+
+---
+
+# 54. Hovednavigasjon
+
+Foreslått hovedmeny:
+
+### Dashboard
+
+### Lovregister
+
+### Lovlister
+
+### LCK
+
+### Avvik og tiltak
+
+### Lovendringer
+
+### Rapporter
+
+### Organisasjon
+
+### Brukere
+
+### Innstillinger
+
+---
+
+# 55. Dashboard – anbefalt førsteside
+
+Når HSEQ-administrator logger inn bør følgende være synlig:
+
+*Total compliance*
+
+*Åpne avvik*
+
+*LCK-er som pågår*
+
+*Manglende svar*
+
+*Lovendringer som krever vurdering*
+
+*Tiltak med utløpt frist*
+
+Deretter:
+
+*Compliance per lovområde*
+
+og
+
+*Compliance per organisatorisk enhet*
+
+---
+
+# 56. Hovedvisning – lovliste
+
+Lovliste skal være en av systemets viktigste arbeidsflater.
+
+Eksempel:
+
+*Lovliste: Arbeidsmiljø*
+
+| Regelverk |     § | Påvirkning | Tiltak     | LCK | Compliance | Endring    |
+| --------- | ----: | ---------- | ---------- | --: | ---------: | ---------- |
+| AML       | § 3-1 | Registrert | Registrert |   3 |       94 % | –          |
+| AML       | § 4-1 | Registrert | Registrert |   4 |       78 % | –          |
+| AML       | § 4-3 | Registrert | Mangler    |   2 |       64 % | Ny endring |
+
+Brukeren skal raskt kunne identifisere områder som krever oppfølging.
+
+---
+
+# 57. Rapport: Ikke relevant
+
+Det skal være en egen rapport/filter for svar markert:
+
+*Ikke relevant*
+
+Rapporten skal vise:
+
+* lov
+* paragraf
+* spørsmål
+* virksomhetsenhet
+* respondent
+* begrunnelse
+* dato
+
+Dette gjør det mulig for HSEQ-administrator å vurdere om respondenter bruker «Ikke relevant» riktig.
+
+---
+
+# 58. Sammenligning mellom organisasjonsenheter
+
+Administrator skal kunne sammenligne compliance mellom enheter.
+
+Eksempel:
+
+| Region | Compliance |
+| ------ | ---------: |
+| Nord   |       94 % |
+| Midt   |       89 % |
+| Vest   |       82 % |
+| Øst    |       76 % |
+
+Administrator skal deretter kunne klikke på Region Øst og se hvilke lovkrav som trekker resultatet ned.
+
+---
+
+# 59. Utvikling over tid
+
+Systemet skal lagre historisk compliance.
+
+Det skal være mulig å vise eksempelvis:
+
+*Q1 – 72 %*
+
+*Q2 – 78 %*
+
+*Q3 – 84 %*
+
+*Q4 – 91 %*
+
+Dette skal kunne vises på både:
+
+* virksomhet
+* region
+* avdeling
+* lovområde
+* paragraf
+
+---
+
+# 60. Juridisk ansvarsavgrensning
+
+Systemet skal være et beslutnings- og styringsverktøy for compliance.
+
+AI-genererte vurderinger skal ikke fremstilles som juridisk rådgivning eller en garanti for at virksomheten oppfyller norsk lov.
+
+Det bør fremgå at:
+
+* lovdata kommer fra autoritativ kilde
+* virksomheten selv avgjør hvilke krav som er relevante
+* AI-genererte vurderinger er forslag
+* administrator må kvalitetssikre og godkjenne vurderingene
+
+---
+
+# 61. Første versjon / MVP
+
+Første produksjonsklare versjon skal prioritere følgende funksjoner:
+
+1. Kunde og virksomhetsprofil
+2. Organisasjonsstruktur
+3. Brukere og roller
+4. Lovdata-integrasjon
+5. Søk etter lover/forskrifter/paragrafer
+6. Opprettelse av lovlister
+7. Paragrafvisning
+8. Felt for påvirkning og tiltak
+9. AI-forslag til relevante lovkrav
+10. AI-forslag til påvirkning
+11. AI-forslag til tiltak
+12. LCK-spørsmål
+13. AI-generering av LCK-spørsmål
+14. Opprettelse og utsending av LCK
+15. Ja / Delvis / Nei / Ikke relevant
+16. Kommentar og dokumentasjon
+17. Compliance-score
+18. Dashboard
+19. Rapporter
+20. Avvik
+21. Tiltak
+22. Lovendringsdeteksjon
+23. AI-oppsummering av lovendringer
+24. Varsling
+25. Historikk/audit log
+
+---
+
+# 62. Senere funksjoner
+
+Arkitekturen bør ikke hindre senere støtte for:
+
+* risikovurderinger
+* ISO-standarder og ISO-krav
+* interne krav
+* konsernkrav
+* kontraktskrav
+* EU-regelverk
+* NORSOK
+* standardbibliotek
+* dokumentkontroll
+* kontrollplaner
+* revisjoner
+* API mot avvikssystemer
+* Power BI-integrasjon
+* SSO / Microsoft Entra ID
+* automatiske lederrapporter
+* benchmarking mellom organisatoriske enheter
+
+Det bør derfor være mulig å utvikle løsningen fra et rent *lovsamsvarssystem* til et bredere *Compliance Management System*.
+
+---
+
+# 63. Viktige funksjonelle prinsipper
+
+Ved utviklingen skal følgende prinsipper prioriteres:
+
+### 1. Paragrafen er kjernen
+
+Alle vurderinger, kontroller, tiltak, avvik og endringer skal kunne spores tilbake til konkret lovkrav.
+
+### 2. AI foreslår – mennesket godkjenner
+
+AI skal effektivisere arbeidet, men administrator skal ha kontroll.
+
+### 3. Compliance skal kunne dokumenteres
+
+Et grønt resultat alene er ikke nok. Systemet skal kunne vise hvorfor virksomheten mener den er i samsvar.
+
+### 4. Organisasjonen skal være fleksibel
+
+LCK-er skal kunne sendes til riktig organisatorisk nivå avhengig av kontrollens formål.
+
+### 5. «Ikke relevant» skal være transparent
+
+Svarene holdes utenfor compliance-score, men skal alltid være synlige og rapporterbare.
+
+### 6. Lovendringer skal føre til handling
+
+Systemet skal ikke bare varsle om at loven er endret, men hjelpe virksomheten med å forstå konsekvensen og vurdere behovet for tiltak eller ny LCK.
+
+### 7. Historikk skal bevares
+
+Det skal være mulig å dokumentere virksomhetens compliance-arbeid tilbake i tid.
+
+---
+
+# 64. Eksempel på full arbeidsflyt
+
+En transportvirksomhet oppretter konto.
+
+Virksomheten beskriver:
+
+Vi driver persontransport med buss i Norge. Vi har 3 000 ansatte, 25 depoter og 8 egne verksteder. Vi benytter kjemikalier, diesel, elektriske busser, ladestasjoner og vaskehaller.
+
+
+AI analyserer virksomheten.
+
+Systemet foreslår:
+
+* arbeidsmiljøregelverk
+* kjemikalieregelverk
+* brannregelverk
+* elektriske anlegg
+* ytre miljø
+* avfall
+* verkstedregelverk
+
+Administrator går gjennom forslagene og godkjenner aktuelle paragrafer.
+
+Systemet oppretter lovlisten.
+
+For en aktuell paragraf foreslår AI:
+
+### Påvirkning
+
+Kravet gjelder virksomhetens bruk og oppbevaring av kjemikalier i verksteder og vaskehaller.
+
+### Tiltak
+
+* kjemikalieregister
+* risikovurdering
+* substitusjonsvurdering
+* sikkerhetsdatablad
+* opplæring
+
+### LCK-spørsmål
+
+*Har lokasjonen et oppdatert register over kjemikalier som brukes og oppbevares?*
+
+*Er kjemikaliene risikovurdert?*
+
+*Er substitusjonsvurdering gjennomført der dette er relevant?*
+
+Administrator godkjenner spørsmålene.
+
+Deretter opprettes:
+
+*LCK – Kjemikaliehåndtering 2027*
+
+Respondenter:
+
+Alle verkstedledere.
+
+Svarene viser:
+
+* 6 Ja
+* 1 Delvis
+* 1 Nei
+
+Compliance-score beregnes.
+
+Systemet identifiserer avdelingen med «Nei».
+
+Et compliance-avvik opprettes.
+
+Ansvarlig leder får tiltak:
+
+*Gjennomføre og dokumentere risikovurdering av kjemikaliene innen 30 dager.*
+
+Tre måneder senere endres den aktuelle forskriften.
+
+Systemet registrerer endringen.
+
+Administrator mottar:
+
+*Hva er endret?*
+
+*Hva betyr det for virksomheten?*
+
+*Eksempel*
+
+*Anbefalt handling*
+
+Administrator vurderer endringen som:
+
+*Krever tiltak*
+
+og sender en ny LCK kun til de åtte verkstedlederne.
+
+Dette representerer ønsket hovedarbeidsflyt for systemet.
+
+---
+
+# 65. Overordnet mål for brukeropplevelsen
+
+Systemet skal gjøre spørsmålet:
+
+*«Etterlever virksomheten denne paragrafen?»*
+
+enkelt å besvare.
+
+For hvert lovkrav skal administrator raskt kunne se:
+
+*Hva sier loven?*
+
+*Hvorfor gjelder den oss?*
+
+*Hva gjør vi for å oppfylle den?*
+
+*Hvordan kontrollerer vi etterlevelsen?*
+
+*Hvem er kontrollert?*
+
+*Hva svarte de?*
+
+*Er vi i samsvar?*
+
+*Finnes det avvik?*
+
+*Har loven blitt endret?*
+
+Dette skal være kjernen i hele produktets brukeropplevelse.

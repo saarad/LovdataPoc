@@ -1,0 +1,8 @@
+On overview for Lovdata, the following must be changed:
+- Adminstrator should be able to edit everything "created". So not the static lovdata itself, but summaries and other generated text
+- "Regelverk" must have a more detailed view available of the paragrahp itself, not just the summary
+- "Påvirkining" should say how the tenant is actually påvirket
+- "Tiltak" is policies that are in place to followup the laws. Not just registered. Adminstrator should be able to put them in himself and/or have prefilled based on existing docs
+- "Lck", what is the number representing here? 
+- "LovEndring" should be clicable and admin must aknowedlge. We have to also send email about, but not part of the mock
+- Instead of clicking on a row and then getting details etc below, let it be expandable row

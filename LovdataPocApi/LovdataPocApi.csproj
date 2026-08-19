@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>6376771c-8a2a-4bdd-88a7-13929fbd9b7a</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <DockerfileContext>.</DockerfileContext>
+    <ClientAppDirectory>$(MSBuildProjectDirectory)\ClientApp</ClientAppDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+    <!-- Override the vulnerable 2.0.0 transitive version pulled by ASP.NET Core. -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.11.0" />
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
+  </ItemGroup>
+
+  <Target Name="BuildClientApp" AfterTargets="Publish">
+    <Exec WorkingDirectory="$(ClientAppDirectory)" Command="npm ci" />
+    <Exec WorkingDirectory="$(ClientAppDirectory)" Command="npm run build" />
+    <RemoveDir Directories="$(PublishDir)wwwroot" />
+    <MakeDir Directories="$(PublishDir)wwwroot" />
+    <ItemGroup>
+      <ClientAppDist Include="$(ClientAppDirectory)\dist\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ClientAppDist)" DestinationFiles="@(ClientAppDist->'$(PublishDir)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+</Project>
