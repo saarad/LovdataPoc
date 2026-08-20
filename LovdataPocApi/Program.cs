@@ -12,7 +12,10 @@ builder.Services.AddSingleton<ComplianceStore>();
 
 var app = builder.Build();
 
-app.UseHttpsRedirection();
+// TLS terminates at Azure Container Apps (and at Vercel for proxied requests).
+// Avoid redirecting internal probe traffic from the container's HTTP port.
+app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
+    .ExcludeFromDescription();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

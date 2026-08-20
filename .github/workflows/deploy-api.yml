@@ -1,0 +1,125 @@
+name: Deploy API to Azure Container Apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "LovdataPocApi/**"
+      - "infra/**"
+      - ".dockerignore"
+      - ".github/workflows/deploy-api.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AZURE_RESOURCE_GROUP: lovdata-poc-prod
+  AZURE_LOCATION: westeurope
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate repository configuration
+        env:
+          AZURE_NAME_SUFFIX: ${{ vars.AZURE_NAME_SUFFIX }}
+        run: |
+          if [[ ! "$AZURE_NAME_SUFFIX" =~ ^[a-z0-9]{3,12}$ ]]; then
+            echo "Repository variable AZURE_NAME_SUFFIX must contain 3-12 lowercase letters or digits."
+            exit 1
+          fi
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create resource group
+        run: az group create --name "$AZURE_RESOURCE_GROUP" --location "$AZURE_LOCATION" --output none
+
+      - name: Provision shared infrastructure
+        id: bootstrap
+        env:
+          AZURE_NAME_SUFFIX: ${{ vars.AZURE_NAME_SUFFIX }}
+        run: |
+          APP_NAME="lovdatapoc-${AZURE_NAME_SUFFIX}-api"
+          CURRENT_IMAGE=$(az containerapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$APP_NAME" --query "properties.template.containers[0].image" --output tsv 2>/dev/null || true)
+          IMAGE=${CURRENT_IMAGE:-mcr.microsoft.com/azuredocs/containerapps-helloworld:latest}
+
+          az deployment group create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --template-file infra/main.bicep \
+            --parameters nameSuffix="$AZURE_NAME_SUFFIX" location="$AZURE_LOCATION" image="$IMAGE" \
+            --output none
+
+          REGISTRY_NAME=$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name main --query "properties.outputs.registryName.value" --output tsv)
+          REGISTRY_SERVER=$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" --name main --query "properties.outputs.registryServer.value" --output tsv)
+          echo "registry-name=$REGISTRY_NAME" >> "$GITHUB_OUTPUT"
+          echo "registry-server=$REGISTRY_SERVER" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push immutable API image
+        env:
+          REGISTRY_NAME: ${{ steps.bootstrap.outputs.registry-name }}
+        run: |
+          az acr build \
+            --registry "$REGISTRY_NAME" \
+            --image "lovdata-poc-api:${GITHUB_SHA}" \
+            --file LovdataPocApi/Dockerfile \
+            .
+
+      - name: Deploy API image
+        id: deploy
+        env:
+          AZURE_NAME_SUFFIX: ${{ vars.AZURE_NAME_SUFFIX }}
+          REGISTRY_SERVER: ${{ steps.bootstrap.outputs.registry-server }}
+        run: |
+          IMAGE="${REGISTRY_SERVER}/lovdata-poc-api:${GITHUB_SHA}"
+          az deployment group create \
+            --name api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --template-file infra/main.bicep \
+            --parameters nameSuffix="$AZURE_NAME_SUFFIX" location="$AZURE_LOCATION" image="$IMAGE" \
+            --output none
+
+          API_URL=$(az containerapp show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "lovdatapoc-${AZURE_NAME_SUFFIX}-api" \
+            --query "'https://' + properties.configuration.ingress.fqdn" \
+            --output tsv)
+          echo "api-url=$API_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify API health
+        env:
+          API_URL: ${{ steps.deploy.outputs.api-url }}
+        run: |
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error "$API_URL/health"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "API did not become healthy."
+          exit 1
+
+      - name: Publish deployment summary
+        env:
+          API_URL: ${{ steps.deploy.outputs.api-url }}
+        run: |
+          {
+            echo "## Azure API deployed"
+            echo
+            echo "- API: $API_URL"
+            echo "- Health: $API_URL/health"
+            echo "- Image commit: \`$GITHUB_SHA\`"
+            echo
+            echo "Set Vercel's BACKEND_API_URL to \`$API_URL\` and redeploy the frontend."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -6,6 +6,14 @@
   "outputDirectory": "LovdataPocApi/ClientApp/dist",
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "/api/backend-proxy?target=/api/:path*"
+    },
+    {
+      "source": "/openapi/:path*",
+      "destination": "/api/backend-proxy?target=/openapi/:path*"
+    },
+    {
       "source": "/((?!api(?:/|$)|openapi(?:/|$)).*)",
       "destination": "/index.html"
     }
