@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "npm --prefix LovdataPocApi/ClientApp ci",
+  "buildCommand": "npm --prefix LovdataPocApi/ClientApp run build",
+  "outputDirectory": "LovdataPocApi/ClientApp/dist",
+  "rewrites": [
+    {
+      "source": "/((?!api(?:/|$)|openapi(?:/|$)).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
