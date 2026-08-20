@@ -1,0 +1,15 @@
+**/.git
+**/.github
+**/.vs
+**/.vscode
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/TestResults
+**/*.user
+**/*.suo
+**/.env*
+README.md
+infra
+vercel.json
