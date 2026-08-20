@@ -22,19 +22,25 @@ Open the Vite address (normally `http://localhost:5173`) and click **Say hello**
 
 ## Production deployment
 
-The React client is deployed to Vercel and the .NET API is deployed to Azure Container Apps in West Europe. Vercel proxies `/api/*` and `/openapi/*` through the `api/backend-proxy.js` function, so the browser continues using same-origin URLs without CORS configuration.
+The React client is deployed to Vercel and the .NET API is deployed to the existing Linux Azure App Service:
 
-### One-time Azure and GitHub setup
+```text
+https://lovdatapoc-c4ajbfcxh7f0dpcd.westeurope-01.azurewebsites.net
+```
 
-1. In Microsoft Entra ID, create an app registration/service principal and add a federated credential for this repository's `production` GitHub environment. Use the subject `repo:saarad/LovdataPoc:environment:production` and audience `api://AzureADTokenExchange`.
-2. Give the service principal Contributor and Role Based Access Control Administrator access to the Azure subscription or to the `lovdata-poc-prod` resource group. Contributor provisions the resources; RBAC Administrator permits the workflow to grant the container identity `AcrPull` without broader identity-management access.
-3. In the GitHub `production` environment, add secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID`.
-4. Add the GitHub repository variable `AZURE_NAME_SUFFIX`. It must be 3-12 lowercase letters or digits and should be globally distinctive because it is included in the Azure Container Registry name.
-5. Run **Deploy API to Azure Container Apps** from GitHub Actions. Later pushes to `main` that change backend or infrastructure files deploy automatically.
+Vercel proxies `/api/*` and `/openapi/*` through `api/backend-proxy.js`, so browser requests remain same-origin and do not require CORS configuration. The proxy defaults to the App Service URL above; `BACKEND_API_URL` can optionally override it for another environment.
 
-The workflow publishes the API URL in its job summary. In Vercel, add `BACKEND_API_URL` with that HTTPS URL for Production and Preview, then redeploy the frontend. Requests such as `/api/tenants` will then reach Azure through the Vercel proxy.
+### One-time GitHub setup
 
-The current compliance store is held in memory. Azure is intentionally limited to one replica; restarts and deployments reset the demo data. Durable storage should be added before treating this as production data.
+1. Open the `LovdataPoc` App Service in the Azure portal.
+2. On its **Overview** page, select **Download publish profile**. If Azure requires it, enable basic publishing credentials for the app first.
+3. In GitHub, open this repository's **Settings > Environments > production**.
+4. Create an environment secret named `AZURE_WEBAPP_PUBLISH_PROFILE` and paste the complete downloaded XML file as its value.
+5. Run **Deploy API to Azure App Service** from GitHub Actions. Later pushes to `main` that modify the backend deploy automatically.
+
+The workflow builds the .NET 10 API and React client, deploys the publish directory to App Service `LovdataPoc`, and verifies `/health`. No Azure client ID, service principal, OIDC setup, resource-name suffix, Bicep deployment, or container registry is needed.
+
+The current compliance store is held in memory. Restarts, deployments, and Free F1 recycling reset the demo data. Durable storage should be added before treating this as production data.
 
 ## Lovdata mock API
 

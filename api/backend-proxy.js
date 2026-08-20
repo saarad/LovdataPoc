@@ -21,18 +21,17 @@ function readBody(request) {
   });
 }
 
+const defaultBackendUrl =
+  "https://lovdatapoc-c4ajbfcxh7f0dpcd.westeurope-01.azurewebsites.net";
+
 export default async function handler(request, response) {
-  const backendUrl = process.env.BACKEND_API_URL?.replace(/\/$/, "");
+  const backendUrl = (process.env.BACKEND_API_URL || defaultBackendUrl).replace(
+    /\/$/,
+    "",
+  );
   const target = Array.isArray(request.query.target)
     ? request.query.target[0]
     : request.query.target;
-
-  if (!backendUrl) {
-    return response.status(503).json({
-      error: "Backend unavailable",
-      detail: "BACKEND_API_URL is not configured for this deployment.",
-    });
-  }
 
   if (!target || (!target.startsWith("/api/") && !target.startsWith("/openapi/"))) {
     return response.status(400).json({ error: "Invalid backend path" });
