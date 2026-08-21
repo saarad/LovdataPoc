@@ -30,7 +30,43 @@ type Overview = {
   legalChanges: number
 }
 
-type DemoUser = { id: string; tenantId: string; name: string; role: string; unit: string; email: string }
+type DemoUser = {
+  id: string
+  tenantId: string
+  tenantName?: string
+  name: string
+  role: string
+  unit: string
+  email: string
+  accessLevel?: string
+  permissions?: string[]
+  active?: boolean
+  openDeviations?: number
+  answeredQuestions?: number
+}
+
+type TenantUnit = { name: string; users: number; respondents: number; openDeviations: number; deviations: number; score: number | null }
+
+type TenantDetail = {
+  id: string
+  name: string
+  industry: string
+  description: string
+  units: string[]
+  compliance: number | null
+  questionCount: number
+  answeredCount: number
+  openDeviations: number
+  openActions: number
+  userCount: number
+  lckCount: number
+  accessLevels: string[]
+  permissionOptions: string[]
+  unitRows: TenantUnit[]
+  users: DemoUser[]
+  lcks: LckSummary[]
+  legalChangesToHandle: number
+}
 
 type RegisterEntry = {
   id: string
@@ -41,6 +77,13 @@ type RegisterEntry = {
   paragraph: string
   requirementText: string
   changeStatus: string
+  changeSummary?: string | null
+  changeEffectiveDate?: string | null
+  changeDetectedDate?: string | null
+  changePreviousText?: string | null
+  changeNewText?: string | null
+  changeBusinessImpact?: string | null
+  changeAiGenerated?: boolean
 }
 
 type RequirementQuestion = { id: string; text: string }
@@ -213,6 +256,40 @@ type ReportRow = {
   documentation: string | null
 }
 
+type AnswerCounts = { yes: number; partial: number; no: number; notRelevant: number; unanswered: number }
+
+type OverviewReportLck = {
+  id: string
+  name: string
+  status: string
+  dueDate: string
+  periodFrom: string
+  periodTo: string
+  tenantNames: string[]
+  questionCount: number
+  answeredCount: number
+  responseRate: number
+  compliance: number | null
+  deviations: number
+}
+
+type OverviewReport = {
+  tenantIds: string[]
+  tenantNames: string[]
+  isGlobal: boolean
+  totalCompliance: number | null
+  questionCount: number
+  answeredCount: number
+  responseRate: number
+  controlledRequirements: number
+  openDeviations: number
+  closedDeviations: number
+  answers: AnswerCounts
+  byTenant: { tenantId: string; name: string; score: number | null }[]
+  byArea: { name: string; score: number | null }[]
+  lcks: OverviewReportLck[]
+}
+
 type LckReport = {
   id: string
   name: string
@@ -226,6 +303,8 @@ type LckReport = {
   answeredCount: number
   responseRate: number
   totalCompliance: number | null
+  answers: AnswerCounts
+  deviationsByStatus: { status: string; count: number }[]
   byTenant: { tenantId: string; name: string; score: number | null }[]
   byArea: { name: string; score: number | null }[]
   byRequirement: { requirementId: string; law: string | null; paragraph: string | null; score: number | null }[]
@@ -432,16 +511,27 @@ function App() {
       <main>
         {error && <p className="error">{error}</p>}
 
-        {page === '/virksomheter' && (
-          <TenantOverviewPage
-            tenants={tenants}
-            users={users}
-            register={register}
-            reload={reload}
-            onOpenTenant={id => navigate(href('/dashboard', { tenant: id }))}
-            onOpenLck={id => go(`/lck/${id}`)}
-          />
-        )}
+        {page === '/virksomheter' &&
+          (detailId ? (
+            <TenantDetailPage
+              tenantId={detailId}
+              version={version}
+              reload={reload}
+              onBack={() => navigate('/virksomheter')}
+              onOpenDashboard={() => navigate(href('/dashboard', { tenant: detailId }))}
+              onOpenLck={id => navigate(href(`/lck/${id}`, { tenant: detailId }))}
+              onOpenDeviations={() => navigate(href('/avvik', { tenant: detailId }))}
+            />
+          ) : (
+            <TenantOverviewPage
+              tenants={tenants}
+              users={users}
+              register={register}
+              reload={reload}
+              onOpenTenant={id => navigate(href('/virksomheter/' + id, { tenant: id }))}
+              onOpenLck={id => go(`/lck/${id}`)}
+            />
+          ))}
 
         {page === '/dashboard' && (
           <DashboardPage
@@ -564,7 +654,7 @@ function TenantOverviewPage({
       <section className="table-panel">
         <div className="panel-head">
           <h2>Virksomheter</h2>
-          <span>{selected.length === 0 ? 'Alle virksomheter inngår i totalen' : `${selected.length} valgt`} · klikk en rad for dashboard</span>
+          <span>{selected.length === 0 ? 'Alle virksomheter inngår i totalen' : `${selected.length} valgt`} · klikk en rad for virksomhetskort</span>
         </div>
         <div className="table-wrap">
           <table className="grid">
@@ -606,6 +696,274 @@ function TenantOverviewPage({
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  )
+}
+
+/* ------------------------------------------------------- tenant detail --- */
+
+// Virksomhetskort: organisasjon (avdelinger), tilhørende brukere og tilganger som kan endres.
+function TenantDetailPage({
+  tenantId,
+  version,
+  reload,
+  onBack,
+  onOpenDashboard,
+  onOpenLck,
+  onOpenDeviations
+}: {
+  tenantId: string
+  version: number
+  reload: () => void
+  onBack: () => void
+  onOpenDashboard: () => void
+  onOpenLck: (id: string) => void
+  onOpenDeviations: () => void
+}) {
+  const [data, setData] = useState<TenantDetail>()
+  const [error, setError] = useState('')
+  const [editing, setEditing] = useState<string>()
+
+  const refresh = useCallback(async () => {
+    try {
+      setData(await api<TenantDetail>(`/api/tenants/${tenantId}`))
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Kunne ikke laste virksomheten')
+    }
+  }, [tenantId])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh, version])
+
+  if (error) return <p className="error">{error}</p>
+  if (!data) return <p className="subtle">Laster virksomhet…</p>
+
+  const saveUser = async (userId: string, body: Record<string, unknown>) => {
+    await api(`/api/users/${userId}`, { method: 'PATCH', body: JSON.stringify(body) })
+    await refresh()
+    reload()
+  }
+
+  const togglePermission = (user: DemoUser, permission: string) => {
+    const current = user.permissions ?? []
+    const next = current.includes(permission) ? current.filter(item => item !== permission) : [...current, permission]
+    return saveUser(user.id, { permissions: next })
+  }
+
+  return (
+    <>
+      <header>
+        <div>
+          <p className="eyebrow">Virksomhet</p>
+          <h1>{data.name}</h1>
+          <p className="subtle">
+            {data.industry} · {data.description}
+          </p>
+        </div>
+        <div className="header-actions">
+          <button className="ghost" onClick={onBack}>
+            ← Alle virksomheter
+          </button>
+          <button className="primary" onClick={onOpenDashboard}>
+            Åpne dashbord
+          </button>
+        </div>
+      </header>
+
+      <section className="cards">
+        <Metric label="Compliance" value={percent(data.compliance)} />
+        <Metric label="Avdelinger" value={data.units.length} />
+        <Metric label="Brukere" value={data.userCount} />
+        <Metric label="Besvarte spørsmål" value={`${data.answeredCount} / ${data.questionCount}`} />
+        <Metric label="Åpne avvik" value={data.openDeviations} />
+        <Metric label="Tiltak ikke fullført" value={data.openActions} />
+        <Metric label="Kontroller (LCK)" value={data.lckCount} />
+        <Metric label="Lovendringer til behandling" value={data.legalChangesToHandle} />
+      </section>
+
+      <section className="table-panel">
+        <div className="panel-head">
+          <h2>Organisasjon</h2>
+          <span>Avdelinger og enheter i {data.name}</span>
+        </div>
+        <div className="table-wrap">
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>Avdeling / enhet</th>
+                <th style={{ width: 120 }}>Brukere</th>
+                <th style={{ width: 130 }}>Respondenter</th>
+                <th style={{ width: 130 }}>Avvik totalt</th>
+                <th style={{ width: 120 }}>Åpne avvik</th>
+                <th style={{ width: 200 }}>Compliance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.unitRows.map(unit => (
+                <tr key={unit.name}>
+                  <td>
+                    <strong>{unit.name}</strong>
+                  </td>
+                  <td>{unit.users}</td>
+                  <td>{unit.respondents}</td>
+                  <td>{unit.deviations}</td>
+                  <td>{unit.openDeviations > 0 ? <span className="bad">{unit.openDeviations}</span> : <span className="muted">0</span>}</td>
+                  <td>
+                    <Score value={unit.score} />
+                  </td>
+                </tr>
+              ))}
+              {data.unitRows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="muted">
+                    Ingen avdelinger registrert.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="table-panel">
+        <div className="panel-head">
+          <h2>Brukere og tilganger</h2>
+          <span>Klikk en rad for å endre tilgangsnivå og rettigheter</span>
+        </div>
+        <div className="table-wrap">
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>Bruker</th>
+                <th style={{ width: 170 }}>Rolle</th>
+                <th style={{ width: 150 }}>Avdeling</th>
+                <th style={{ width: 200 }}>Tilgangsnivå</th>
+                <th style={{ width: 110 }}>Besvart</th>
+                <th style={{ width: 110 }}>Åpne avvik</th>
+                <th style={{ width: 110 }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.users.map(user => (
+                <Fragment key={user.id}>
+                  <tr className="clickable" onClick={() => setEditing(editing === user.id ? undefined : user.id)}>
+                    <td>
+                      <strong>{user.name}</strong>
+                      <small>{user.email}</small>
+                    </td>
+                    <td>{user.role}</td>
+                    <td>{user.unit}</td>
+                    <td onClick={event => event.stopPropagation()}>
+                      <select value={user.accessLevel ?? ''} onChange={event => void saveUser(user.id, { accessLevel: event.target.value })}>
+                        {data.accessLevels.map(option => (
+                          <option key={option}>{option}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>{user.answeredQuestions ?? 0}</td>
+                    <td>{(user.openDeviations ?? 0) > 0 ? <span className="bad">{user.openDeviations}</span> : <span className="muted">0</span>}</td>
+                    <td onClick={event => event.stopPropagation()}>
+                      <button className={user.active === false ? 'chip-filter' : 'chip-filter active'} onClick={() => void saveUser(user.id, { active: user.active === false })}>
+                        {user.active === false ? 'Deaktivert' : 'Aktiv'}
+                      </button>
+                    </td>
+                  </tr>
+                  {editing === user.id && (
+                    <tr className="expanded">
+                      <td colSpan={7}>
+                        <div className="access-editor">
+                          <div className="field">
+                            <span>Avdeling / enhet</span>
+                            <select value={user.unit} onChange={event => void saveUser(user.id, { unit: event.target.value })}>
+                              {data.units.map(unit => (
+                                <option key={unit}>{unit}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="field wide">
+                            <span>Rettigheter</span>
+                            <div className="filter-bar">
+                              {data.permissionOptions.map(permission => (
+                                <button
+                                  key={permission}
+                                  className={(user.permissions ?? []).includes(permission) ? 'chip-filter active' : 'chip-filter'}
+                                  onClick={() => void togglePermission(user, permission)}
+                                >
+                                  {permission}
+                                </button>
+                              ))}
+                            </div>
+                            <small className="muted">Rettighetene styrer hvilke moduler brukeren ser. Endringer lagres umiddelbart.</small>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+              {data.users.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="muted">
+                    Ingen brukere registrert.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="table-panel">
+        <div className="panel-head">
+          <h2>Kontroller (LCK)</h2>
+          <button className="link-button" onClick={onOpenDeviations}>
+            Se avvik og tiltak →
+          </button>
+        </div>
+        <div className="table-wrap">
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>Kontroll</th>
+                <th style={{ width: 150 }}>Status</th>
+                <th style={{ width: 120 }}>Frist</th>
+                <th style={{ width: 130 }}>Besvart</th>
+                <th style={{ width: 110 }}>Avvik</th>
+                <th style={{ width: 130 }}>Compliance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.lcks.map(lck => (
+                <tr key={lck.id} className="clickable" onClick={() => onOpenLck(lck.id)}>
+                  <td>
+                    <strong>{lck.name}</strong>
+                  </td>
+                  <td>
+                    <span className="pill">{lck.status}</span>
+                  </td>
+                  <td>{lck.dueDate}</td>
+                  <td>
+                    {lck.answeredCount} / {lck.questionCount}
+                  </td>
+                  <td>{lck.deviationCount > 0 ? <span className="bad">{lck.deviationCount}</span> : <span className="muted">0</span>}</td>
+                  <td>
+                    <Score value={lck.compliance} />
+                  </td>
+                </tr>
+              ))}
+              {data.lcks.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="muted">
+                    Ingen kontroller for denne virksomheten.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -776,14 +1134,17 @@ function BarList({ rows }: { rows: { name: string; score: number | null }[] }) {
 function RegisterPage({ register }: { register: RegisterEntry[] }) {
   const [search, setSearch] = useState('')
   const [area, setArea] = useState('Alle')
+  const [onlyChanges, setOnlyChanges] = useState(false)
   const [expanded, setExpanded] = useState<string>()
 
   const areas = useMemo(() => ['Alle', ...Array.from(new Set(register.map(item => item.area)))], [register])
   const filtered = register.filter(
     item =>
       (area === 'Alle' || item.area === area) &&
+      (!onlyChanges || item.changeStatus === 'Ny lovendring') &&
       `${item.lawName} ${item.paragraph} ${item.requirementText} ${item.area}`.toLowerCase().includes(search.toLowerCase())
   )
+  const changeCount = register.filter(item => item.changeStatus === 'Ny lovendring').length
 
   return (
     <>
@@ -791,7 +1152,9 @@ function RegisterPage({ register }: { register: RegisterEntry[] }) {
         <div>
           <p className="eyebrow">Lovregister</p>
           <h1>Lover og forskrifter fra Lovdata</h1>
-          <p className="subtle">Registeret er felles og skrivebeskyttet. Virksomhetens vurderinger redigeres i lovlisten.</p>
+          <p className="subtle">
+            Registeret er felles og skrivebeskyttet. Klikk en rad for lovtekst – paragrafer med «Ny lovendring» viser en kort endringstekst.
+          </p>
         </div>
       </header>
 
@@ -804,6 +1167,9 @@ function RegisterPage({ register }: { register: RegisterEntry[] }) {
                 {option}
               </button>
             ))}
+            <button className={onlyChanges ? 'chip-filter active' : 'chip-filter'} onClick={() => setOnlyChanges(value => !value)}>
+              Kun lovendringer ({changeCount})
+            </button>
           </div>
         </div>
         <div className="table-wrap">
@@ -820,14 +1186,23 @@ function RegisterPage({ register }: { register: RegisterEntry[] }) {
             <tbody>
               {filtered.map(item => (
                 <Fragment key={item.id}>
-                  <tr className={expanded === item.id ? 'selected' : ''} onClick={() => setExpanded(expanded === item.id ? undefined : item.id)}>
+                  <tr className={expanded === item.id ? 'clickable selected' : 'clickable'} onClick={() => setExpanded(expanded === item.id ? undefined : item.id)}>
                     <td>{item.area}</td>
                     <td>
                       <strong>{item.lawName}</strong>
                     </td>
                     <td>{item.paragraph}</td>
                     <td className="clamp">{item.requirementText}</td>
-                    <td>{item.changeStatus === 'Ny lovendring' ? <span className="pill change">Ny lovendring</span> : <span className="muted">Ingen endring</span>}</td>
+                    <td>
+                      {item.changeStatus === 'Ny lovendring' ? (
+                        <>
+                          <span className="pill change">Ny lovendring</span>
+                          {item.changeSummary && <small className="change-teaser">{item.changeSummary}</small>}
+                        </>
+                      ) : (
+                        <span className="muted">Ingen endring</span>
+                      )}
+                    </td>
                   </tr>
                   {expanded === item.id && (
                     <tr className="expanded">
@@ -838,6 +1213,24 @@ function RegisterPage({ register }: { register: RegisterEntry[] }) {
                             {item.lawName} {item.paragraph}
                           </h3>
                           <p>{item.requirementText}</p>
+                          {item.changeStatus === 'Ny lovendring' && (
+                            <div className="change-note">
+                              <div className="change-note-head">
+                                <span className="pill change">Ny lovendring</span>
+                                {item.changeEffectiveDate && <small>Trer i kraft {item.changeEffectiveDate}</small>}
+                                {item.changeDetectedDate && <small>Oppdaget {item.changeDetectedDate}</small>}
+                                {item.changeAiGenerated && <span className="ai-badge">AI-oppsummert</span>}
+                              </div>
+                              <p className="change-note-summary">{item.changeSummary ?? 'Paragrafen er endret i Lovdata. Se lovendringer for detaljer.'}</p>
+                              {item.changeBusinessImpact && <p className="change-note-impact">{item.changeBusinessImpact}</p>}
+                              {(item.changePreviousText || item.changeNewText) && (
+                                <div className="change-diff">
+                                  <p className="cell-text old">{item.changePreviousText}</p>
+                                  <p className="cell-text new">{item.changeNewText}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <a href={`/api/lovdata/render?refId=${encodeURIComponent(item.refId)}`} target="_blank" rel="noreferrer">
                             Åpne detaljert paragraftekst ↗
                           </a>
@@ -1966,6 +2359,21 @@ function QuestionPanel({
 /* ---------------------------------------------------- avvik og tiltak --- */
 
 // Spec §30-32
+type DeviationSortKey = 'law' | 'question' | 'tenant' | 'unit' | 'answer' | 'respondent' | 'registered' | 'responsible' | 'due' | 'status'
+
+const DEVIATION_SORT: Record<DeviationSortKey, (item: Deviation) => string> = {
+  law: item => `${item.law ?? ''} ${item.paragraph ?? ''}`,
+  question: item => item.questionText ?? '',
+  tenant: item => item.tenantName,
+  unit: item => item.unit || 'ø',
+  answer: item => item.answer,
+  respondent: item => item.respondentName ?? 'ø',
+  registered: item => item.registeredDate,
+  responsible: item => item.responsibleName ?? 'ø',
+  due: item => item.dueDate ?? '9999-12-31',
+  status: item => item.status
+}
+
 function DeviationsPage({
   tenantId,
   tenants,
@@ -1982,6 +2390,14 @@ function DeviationsPage({
   const [data, setData] = useState<{ statusOptions: string[]; items: Deviation[] }>()
   const [actions, setActions] = useState<{ statusOptions: string[]; items: ActionItem[] }>()
   const [filter, setFilter] = useState('Alle')
+  const [search, setSearch] = useState('')
+  const [tenantFilter, setTenantFilter] = useState('')
+  const [unitFilter, setUnitFilter] = useState('')
+  const [respondentFilter, setRespondentFilter] = useState('')
+  const [responsibleFilter, setResponsibleFilter] = useState('')
+  const [lawFilter, setLawFilter] = useState('')
+  const [answerFilter, setAnswerFilter] = useState('')
+  const [sort, setSort] = useState<{ key: DeviationSortKey; dir: 1 | -1 }>({ key: 'due', dir: 1 })
   const [expanded, setExpanded] = useState<string>()
 
   const refresh = useCallback(async () => {
@@ -2000,7 +2416,52 @@ function DeviationsPage({
 
   if (!data || !actions) return <p className="subtle">Laster avvik…</p>
 
-  const items = filter === 'Alle' ? data.items : data.items.filter(item => item.status === filter)
+  const unique = (values: (string | null)[]) => Array.from(new Set(values.filter((value): value is string => Boolean(value)))).sort()
+  const tenantOptions = unique(data.items.map(item => item.tenantName))
+  const unitOptions = unique(data.items.map(item => item.unit))
+  const respondentOptions = unique(data.items.map(item => item.respondentName))
+  const responsibleOptions = unique(data.items.map(item => item.responsibleName))
+  const lawOptions = unique(data.items.map(item => item.law))
+  const answerOptions = unique(data.items.map(item => item.answer))
+
+  const items = data.items
+    .filter(item => filter === 'Alle' || item.status === filter)
+    .filter(item => !tenantFilter || item.tenantName === tenantFilter)
+    .filter(item => !unitFilter || item.unit === unitFilter)
+    .filter(item => !respondentFilter || item.respondentName === respondentFilter)
+    .filter(item => !responsibleFilter || item.responsibleName === responsibleFilter)
+    .filter(item => !lawFilter || item.law === lawFilter)
+    .filter(item => !answerFilter || item.answer === answerFilter)
+    .filter(item =>
+      !search ||
+      `${item.law ?? ''} ${item.paragraph ?? ''} ${item.questionText ?? ''} ${item.tenantName} ${item.unit} ${item.respondentName ?? ''} ${item.comment ?? ''}`
+        .toLowerCase()
+        .includes(search.toLowerCase())
+    )
+    .slice()
+    .sort((left, right) => DEVIATION_SORT[sort.key](left).localeCompare(DEVIATION_SORT[sort.key](right), 'nb') * sort.dir)
+
+  const toggleSort = (key: DeviationSortKey) => setSort(current => ({ key, dir: current.key === key && current.dir === 1 ? -1 : 1 }))
+
+  const SortHeader = ({ column, label, width }: { column: DeviationSortKey; label: string; width?: number }) => (
+    <th style={width ? { width } : undefined} className={sort.key === column ? 'sortable sorted' : 'sortable'} onClick={() => toggleSort(column)} title={`Sorter på ${label}`}>
+      {label}
+      <span className="sort-arrow">{sort.key === column ? (sort.dir === 1 ? '▲' : '▼') : '↕'}</span>
+    </th>
+  )
+
+  const activeFilters = [tenantFilter, unitFilter, respondentFilter, responsibleFilter, lawFilter, answerFilter].filter(Boolean).length
+  const clearFilters = () => {
+    setTenantFilter('')
+    setUnitFilter('')
+    setRespondentFilter('')
+    setResponsibleFilter('')
+    setLawFilter('')
+    setAnswerFilter('')
+    setSearch('')
+    setFilter('Alle')
+  }
+
   const changeActions = [...actions.items.filter(action => action.sourceType === 'Lovendring')].sort(
     (left, right) => ACTION_STATE_ORDER.indexOf(actionState(left)) - ACTION_STATE_ORDER.indexOf(actionState(right))
   )
@@ -2017,7 +2478,7 @@ function DeviationsPage({
         <div>
           <p className="eyebrow">Avvik og tiltak</p>
           <h1>{tenantId ? (tenants.find(item => item.id === tenantId)?.name ?? 'Virksomhet') : 'Alle virksomheter'}</h1>
-          <p className="subtle">Avvik opprettes automatisk fra «Nei» – og fra «Delvis» når kontrollen er satt opp for det.</p>
+          <p className="subtle">Avvik opprettes automatisk fra «Nei» – og fra «Delvis» når kontrollen er satt opp for det. Klikk en kolonneoverskrift for å sortere.</p>
         </div>
       </header>
 
@@ -2039,19 +2500,82 @@ function DeviationsPage({
             ))}
           </div>
         </div>
+        <div className="filter-row">
+          <input className="search" placeholder="Søk i avvik, lov, spørsmål eller kommentar…" value={search} onChange={event => setSearch(event.target.value)} />
+          <label className="inline-field">
+            <span>Virksomhet</span>
+            <select value={tenantFilter} onChange={event => setTenantFilter(event.target.value)}>
+              <option value="">Alle</option>
+              {tenantOptions.map(option => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label className="inline-field">
+            <span>Enhet</span>
+            <select value={unitFilter} onChange={event => setUnitFilter(event.target.value)}>
+              <option value="">Alle</option>
+              {unitOptions.map(option => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label className="inline-field">
+            <span>Respondent</span>
+            <select value={respondentFilter} onChange={event => setRespondentFilter(event.target.value)}>
+              <option value="">Alle</option>
+              {respondentOptions.map(option => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label className="inline-field">
+            <span>Ansvarlig</span>
+            <select value={responsibleFilter} onChange={event => setResponsibleFilter(event.target.value)}>
+              <option value="">Alle</option>
+              {responsibleOptions.map(option => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label className="inline-field">
+            <span>Lov</span>
+            <select value={lawFilter} onChange={event => setLawFilter(event.target.value)}>
+              <option value="">Alle</option>
+              {lawOptions.map(option => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label className="inline-field">
+            <span>Svar</span>
+            <select value={answerFilter} onChange={event => setAnswerFilter(event.target.value)}>
+              <option value="">Alle</option>
+              {answerOptions.map(option => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <button className="ghost" onClick={clearFilters} disabled={activeFilters === 0 && !search && filter === 'Alle'}>
+            Nullstill
+          </button>
+          <span className="filter-count">
+            {items.length} av {data.items.length} avvik
+          </span>
+        </div>
         <div className="table-wrap">
           <table className="grid">
             <thead>
               <tr>
-                <th style={{ width: 170 }}>Lov / paragraf</th>
-                <th>LCK-spørsmål</th>
-                <th style={{ width: 170 }}>Virksomhet / enhet</th>
-                <th style={{ width: 90 }}>Svar</th>
-                <th style={{ width: 140 }}>Respondent</th>
-                <th style={{ width: 110 }}>Registrert</th>
-                <th style={{ width: 170 }}>Ansvarlig</th>
-                <th style={{ width: 140 }}>Frist</th>
-                <th style={{ width: 170 }}>Status</th>
+                <SortHeader column="law" label="Lov / paragraf" width={170} />
+                <SortHeader column="question" label="LCK-spørsmål" />
+                <SortHeader column="tenant" label="Virksomhet / enhet" width={170} />
+                <SortHeader column="answer" label="Svar" width={90} />
+                <SortHeader column="respondent" label="Respondent" width={140} />
+                <SortHeader column="registered" label="Registrert" width={120} />
+                <SortHeader column="responsible" label="Ansvarlig" width={170} />
+                <SortHeader column="due" label="Frist" width={140} />
+                <SortHeader column="status" label="Status" width={170} />
               </tr>
             </thead>
             <tbody>
@@ -2733,8 +3257,38 @@ function LegalChangeActionDialog({
 
 /* ------------------------------------------------------------ rapporter --- */
 
-// Spec §28-29
+// Spec §28-29: kort hovedrapport for alle virksomheter, detaljene kommer per valgt LCK.
+const ANSWER_TONES = [
+  { key: 'yes', label: 'Ja', tone: 'green' },
+  { key: 'partial', label: 'Delvis', tone: 'orange' },
+  { key: 'no', label: 'Nei', tone: 'red' },
+  { key: 'notRelevant', label: 'Ikke relevant', tone: 'yellow' },
+  { key: 'unanswered', label: 'Ubesvart', tone: 'grey' }
+] as const
+
+function AnswerSummary({ answers, title }: { answers: AnswerCounts; title: string }) {
+  const total = answers.yes + answers.partial + answers.no + answers.notRelevant + answers.unanswered
+  return (
+    <section className="table-panel">
+      <div className="panel-head">
+        <h2>{title}</h2>
+        <span>{total} spørsmål</span>
+      </div>
+      <div className="answer-summary">
+        {ANSWER_TONES.map(item => (
+          <div className={`answer-tile tone-${item.tone}`} key={item.key}>
+            <span>{item.label}</span>
+            <strong>{answers[item.key]}</strong>
+            <small>{total === 0 ? '0 %' : `${Math.round((100 * answers[item.key]) / total)} %`}</small>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function ReportsPage({ tenantId, version }: { tenantId: string; version: number }) {
+  const [overview, setOverview] = useState<OverviewReport>()
   const [lcks, setLcks] = useState<LckSummary[]>([])
   const [selected, setSelected] = useState('')
   const [report, setReport] = useState<LckReport>()
@@ -2742,14 +3296,20 @@ function ReportsPage({ tenantId, version }: { tenantId: string; version: number 
   useEffect(() => {
     void (async () => {
       const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''
-      const list = await api<LckSummary[]>(`/api/lcks${query}`)
+      const [list, summary] = await Promise.all([
+        api<LckSummary[]>(`/api/lcks${query}`),
+        api<OverviewReport>(`/api/reports/overview?tenantIds=${encodeURIComponent(tenantId)}`)
+      ])
       setLcks(list)
-      setSelected(current => current || list[0]?.id || '')
+      setOverview(summary)
     })()
   }, [tenantId, version])
 
   useEffect(() => {
-    if (!selected) return
+    if (!selected) {
+      setReport(undefined)
+      return
+    }
     void api<LckReport>(`/api/reports/lcks/${selected}?tenantIds=${encodeURIComponent(tenantId)}`).then(setReport)
   }, [selected, tenantId, version])
 
@@ -2784,13 +3344,18 @@ function ReportsPage({ tenantId, version }: { tenantId: string; version: number 
       <header>
         <div>
           <p className="eyebrow">Rapporter</p>
-          <h1>LCK-sluttrapport</h1>
-          <p className="subtle">Svarprosent, score per enhet, lovområde og paragraf, samt alle «Delvis», «Nei» og «Ikke relevant».</p>
+          <h1>{report ? report.name : 'Hovedrapport'}</h1>
+          <p className="subtle">
+            {report
+              ? 'Detaljert rapport for kontrollen: svarfordeling, avvik og alle «Delvis», «Nei» og «Ikke relevant».'
+              : 'Kort samlerapport for utvalget. Velg en gjennomført kontroll for score per paragraf og svarene fra LCK-en.'}
+          </p>
         </div>
         <div className="header-actions">
           <label className="inline-field">
-            <span>Kontroll</span>
+            <span>Rapport</span>
             <select value={selected} onChange={event => setSelected(event.target.value)}>
+              <option value="">Hovedrapport – {overview?.isGlobal === false ? 'valgt virksomhet' : 'alle virksomheter'}</option>
               {lcks.map(lck => (
                 <option key={lck.id} value={lck.id}>
                   {lck.name}
@@ -2804,8 +3369,89 @@ function ReportsPage({ tenantId, version }: { tenantId: string; version: number 
         </div>
       </header>
 
-      {!report ? (
-        <p className="subtle">Velg en kontroll for å generere rapport.</p>
+      {!selected ? (
+        !overview ? (
+          <p className="subtle">Laster rapport…</p>
+        ) : (
+          <>
+            <section className="cards">
+              <Metric label="Samlet compliance" value={percent(overview.totalCompliance)} />
+              <Metric label="Svarprosent" value={`${overview.responseRate} %`} />
+              <Metric label="Kontrollerte krav" value={overview.controlledRequirements} />
+              <Metric label="Åpne avvik" value={overview.openDeviations} />
+            </section>
+
+            <div className="split">
+              <section className="table-panel">
+                <div className="panel-head">
+                  <h2>Compliance per virksomhet</h2>
+                </div>
+                <BarList rows={overview.byTenant.map(row => ({ name: row.name, score: row.score }))} />
+              </section>
+              <section className="table-panel">
+                <div className="panel-head">
+                  <h2>Compliance per lovområde</h2>
+                </div>
+                <BarList rows={overview.byArea.map(row => ({ name: row.name, score: row.score }))} />
+              </section>
+            </div>
+
+            <section className="table-panel">
+              <div className="panel-head">
+                <h2>Gjennomførte kontroller</h2>
+                <span>Klikk en kontroll for detaljert rapport</span>
+              </div>
+              <div className="table-wrap">
+                <table className="grid">
+                  <thead>
+                    <tr>
+                      <th>Kontroll</th>
+                      <th style={{ width: 200 }}>Virksomheter</th>
+                      <th style={{ width: 190 }}>Periode</th>
+                      <th style={{ width: 130 }}>Status</th>
+                      <th style={{ width: 130 }}>Svarprosent</th>
+                      <th style={{ width: 100 }}>Avvik</th>
+                      <th style={{ width: 130 }}>Compliance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overview.lcks.map(lck => (
+                      <tr key={lck.id} className="clickable" onClick={() => setSelected(lck.id)}>
+                        <td>
+                          <strong>{lck.name}</strong>
+                          <small>
+                            {lck.answeredCount} / {lck.questionCount} besvart
+                          </small>
+                        </td>
+                        <td>{lck.tenantNames.join(', ')}</td>
+                        <td>
+                          {lck.periodFrom} – {lck.periodTo}
+                        </td>
+                        <td>
+                          <span className="pill">{lck.status}</span>
+                        </td>
+                        <td>{lck.responseRate} %</td>
+                        <td>{lck.deviations > 0 ? <span className="bad">{lck.deviations}</span> : <span className="muted">0</span>}</td>
+                        <td>
+                          <Score value={lck.compliance} />
+                        </td>
+                      </tr>
+                    ))}
+                    {overview.lcks.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="muted">
+                          Ingen kontroller i dette utvalget.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )
+      ) : !report ? (
+        <p className="subtle">Laster rapport…</p>
       ) : (
         <>
           <section className="cards">
@@ -2832,6 +3478,23 @@ function ReportsPage({ tenantId, version }: { tenantId: string; version: number 
             </div>
           </section>
 
+          <AnswerSummary answers={report.answers} title="Svarfordeling" />
+
+          <section className="table-panel">
+            <div className="panel-head">
+              <h2>Avvik per status</h2>
+              <span>{report.deviations.length} avvik totalt</span>
+            </div>
+            <div className="answer-summary">
+              {report.deviationsByStatus.map(row => (
+                <div className={`answer-tile ${row.status === 'Lukket' ? 'tone-green' : 'tone-red'}`} key={row.status}>
+                  <span>{row.status}</span>
+                  <strong>{row.count}</strong>
+                </div>
+              ))}
+            </div>
+          </section>
+
           <div className="split">
             <section className="table-panel">
               <div className="panel-head">
@@ -2853,11 +3516,7 @@ function ReportsPage({ tenantId, version }: { tenantId: string; version: number 
             </section>
           </div>
 
-          <ReportRows title="Svar: Delvis" rows={report.partial} />
-          <ReportRows title="Svar: Nei" rows={report.nonCompliant} />
-          <ReportRows title="Svar: Ikke relevant (utenfor compliance-scoren)" rows={report.notRelevant} />
-
-          <section className="table-panel">
+          <section className="table-panel tone-red">
             <div className="panel-head">
               <h2>Registrerte avvik</h2>
               <span>{report.deviations.length} avvik</span>
@@ -2901,15 +3560,19 @@ function ReportsPage({ tenantId, version }: { tenantId: string; version: number 
               </table>
             </div>
           </section>
+
+          <ReportRows title="Svar: Nei" tone="red" rows={report.nonCompliant} />
+          <ReportRows title="Svar: Delvis" tone="orange" rows={report.partial} />
+          <ReportRows title="Svar: Ikke relevant (utenfor compliance-scoren)" tone="yellow" rows={report.notRelevant} />
         </>
       )}
     </>
   )
 }
 
-function ReportRows({ title, rows }: { title: string; rows: ReportRow[] }) {
+function ReportRows({ title, rows, tone }: { title: string; rows: ReportRow[]; tone?: 'red' | 'orange' | 'yellow' }) {
   return (
-    <section className="table-panel">
+    <section className={tone ? `table-panel tone-${tone}` : 'table-panel'}>
       <div className="panel-head">
         <h2>{title}</h2>
         <span>{rows.length} svar</span>

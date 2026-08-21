@@ -24,7 +24,13 @@ public sealed class ComplianceStore
         new("vestland-buss", "Vestland Buss AS", "Kollektivtransport", "Regional bussoperatør med to depoter.", ["Førde", "Voss"])
     ];
 
-    public IReadOnlyList<DemoUser> Users { get; } =
+    /// <summary>Spec: tilgangsnivå per bruker, redigerbart fra virksomhetssiden.</summary>
+    public static readonly string[] AccessLevels = ["Systemadministrator", "Virksomhetsadministrator", "Avdelingsleder", "Respondent", "Lesetilgang"];
+
+    /// <summary>Modulrettigheter som kan skrus av og på per bruker.</summary>
+    public static readonly string[] PermissionOptions = ["Lovregister", "Lovlister", "LCK", "Avvik og tiltak", "Lovendringer", "Rapporter", "Brukeradministrasjon"];
+
+    private readonly List<DemoUser> users =
     [
         new("ingrid", "nordic-bus", "Ingrid Hansen", "HSEQ-administrator", "Region Midt", "ingrid.hansen@nordicbus.no"),
         new("nils", "nordic-bus", "Nils Haugen", "Avdelingsleder", "Region Midt", "nils.haugen@nordicbus.no"),
@@ -35,6 +41,8 @@ public sealed class ComplianceStore
         new("jon", "vestland-buss", "Jon Aare", "Driftssjef", "Førde", "jon.aare@vestlandbuss.no"),
         new("lise", "vestland-buss", "Lise Moen", "Depotleder", "Voss", "lise.moen@vestlandbuss.no")
     ];
+
+    public IReadOnlyList<DemoUser> Users => users;
 
     /// <summary>Global Lovdata-derived register. Shared across tenants and never edited by a tenant.</summary>
     private readonly List<LawRequirement> register =
@@ -66,6 +74,7 @@ public sealed class ComplianceStore
 
     public ComplianceStore()
     {
+        SeedAccess();
         SeedContent();
         SeedLawLists();
         SeedLcks();
@@ -83,6 +92,27 @@ public sealed class ComplianceStore
     public LawRequirement? FindRequirement(string id) => register.FirstOrDefault(item => item.Id == id);
     public LawList? FindLawList(string id) => lawLists.FirstOrDefault(item => item.Id == id);
     public Lck? FindLck(string id) => lcks.FirstOrDefault(item => item.Id == id);
+    public DemoUser? FindUser(string id) => users.FirstOrDefault(item => item.Id == id);
+
+    /// <summary>Lovendringen som hører til et lovkrav, brukes for kort endringstekst i lovregisteret.</summary>
+    public LegalChange? LegalChangeFor(string requirementId) => legalChanges.FirstOrDefault(item => item.RequirementId == requirementId);
+
+    /// <summary>Spec: tilganger endres direkte fra virksomhetsbildet.</summary>
+    public DemoUser? UpdateUser(string id, UpdateUserRequest request)
+    {
+        lock (gate)
+        {
+            var user = FindUser(id);
+            if (user is null) return null;
+
+            if (request.Role is { Length: > 0 } role) user.Role = role;
+            if (request.Unit is { Length: > 0 } unit) user.Unit = unit;
+            if (request.AccessLevel is { Length: > 0 } level && AccessLevels.Contains(level)) user.AccessLevel = level;
+            if (request.Permissions is { } permissions) user.Permissions = [.. PermissionOptions.Where(permissions.Contains)];
+            if (request.Active is { } active) user.Active = active;
+            return user;
+        }
+    }
 
     /// <summary>Global, curated content per paragraph. Edited from the lovliste, never per tenant.</summary>
     public RequirementContent GetContent(string requirementId)
@@ -560,6 +590,25 @@ public sealed class ComplianceStore
         }
     }
 
+    private void SeedAccess()
+    {
+        void Access(string userId, string level, params string[] permissions)
+        {
+            if (FindUser(userId) is not { } user) return;
+            user.AccessLevel = level;
+            user.Permissions = [.. permissions];
+        }
+
+        Access("ingrid", "Systemadministrator", PermissionOptions);
+        Access("nils", "Avdelingsleder", "Lovlister", "LCK", "Avvik og tiltak", "Rapporter");
+        Access("sara", "Respondent", "LCK", "Avvik og tiltak");
+        Access("tom", "Respondent", "LCK");
+        Access("erik", "Virksomhetsadministrator", "Lovregister", "Lovlister", "LCK", "Avvik og tiltak", "Lovendringer", "Rapporter");
+        Access("mari", "Avdelingsleder", "LCK", "Avvik og tiltak");
+        Access("jon", "Virksomhetsadministrator", "Lovregister", "Lovlister", "LCK", "Avvik og tiltak", "Rapporter", "Brukeradministrasjon");
+        Access("lise", "Respondent", "LCK");
+    }
+
     private void SeedLegalChanges()
     {
         legalChanges.Add(new LegalChange
@@ -593,7 +642,21 @@ public sealed class ComplianceStore
 }
 
 public sealed record Tenant(string Id, string Name, string Industry, string Description, IReadOnlyList<string> Units);
-public sealed record DemoUser(string Id, string TenantId, string Name, string Role, string Unit, string Email);
+
+/// <summary>Demo-bruker med redigerbar rolle, enhet og tilgangsnivå.</summary>
+public sealed class DemoUser(string id, string tenantId, string name, string role, string unit, string email)
+{
+    public string Id { get; } = id;
+    public string TenantId { get; } = tenantId;
+    public string Name { get; set; } = name;
+    public string Role { get; set; } = role;
+    public string Unit { get; set; } = unit;
+    public string Email { get; set; } = email;
+    public string AccessLevel { get; set; } = "Respondent";
+    public List<string> Permissions { get; set; } = [];
+    public bool Active { get; set; } = true;
+}
+
 public sealed record LawRequirement(string Id, string Area, string LawName, string DokId, string RefId, string Paragraph, string RequirementText, string ChangeStatus);
 public sealed record RequirementQuestion(string Id, string Text);
 
@@ -732,3 +795,4 @@ public sealed record UpdateDeviationRequest(string? Status, string? ResponsibleI
 public sealed record CreateActionRequest(string TenantId, string SourceType, string? SourceId, string? RequirementId, string? Description, string? ResponsibleId, DateOnly? DueDate, string? Status, string? Documentation, string? Comment);
 public sealed record UpdateActionRequest(string? Description, string? ResponsibleId, DateOnly? DueDate, string? Status, string? Documentation, string? Comment);
 public sealed record UpdateLegalChangeRequest(string? Status, string? Note);
+public sealed record UpdateUserRequest(string? Role, string? Unit, string? AccessLevel, IReadOnlyList<string>? Permissions, bool? Active);

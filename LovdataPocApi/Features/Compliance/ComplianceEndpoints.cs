@@ -12,6 +12,50 @@ public static class ComplianceEndpoints
 
         api.MapGet("/tenants", (ComplianceStore store) => Results.Ok(store.Tenants.Select(tenant => TenantSummary(store, tenant))));
 
+        // Spec: virksomhetskort med organisasjon (avdelinger) og tilhørende brukere.
+        api.MapGet("/tenants/{id}", (string id, ComplianceStore store) =>
+        {
+            var tenant = store.FindTenant(id);
+            if (tenant is null) return Results.NotFound();
+
+            var questions = store.QuestionsFor(tenant.Id).ToList();
+            var tenantUsers = store.Users.Where(user => user.TenantId == tenant.Id).ToList();
+            var tenantDeviations = store.Deviations.Where(deviation => deviation.TenantId == tenant.Id).ToList();
+            var tenantActions = store.Actions.Where(action => action.TenantId == tenant.Id).ToList();
+            var tenantLcks = store.Lcks.Where(lck => lck.TenantIds.Contains(tenant.Id)).ToList();
+
+            return Results.Ok(new
+            {
+                tenant.Id,
+                tenant.Name,
+                tenant.Industry,
+                tenant.Description,
+                units = tenant.Units,
+                compliance = ComplianceStore.ScoreOf(questions),
+                questionCount = questions.Count,
+                answeredCount = questions.Count(question => question.Answer is not null),
+                openDeviations = tenantDeviations.Count(deviation => deviation.Status != "Lukket"),
+                openActions = tenantActions.Count(action => action.Status is not ("Fullført" or "Verifisert")),
+                userCount = tenantUsers.Count,
+                lckCount = tenantLcks.Count,
+                accessLevels = ComplianceStore.AccessLevels,
+                permissionOptions = ComplianceStore.PermissionOptions,
+                unitRows = tenant.Units.Select(unit => new
+                {
+                    name = unit,
+                    users = tenantUsers.Count(user => user.Unit == unit),
+                    respondents = tenantUsers.Count(user => user.Unit == unit && user.AccessLevel == "Respondent"),
+                    openDeviations = tenantDeviations.Count(deviation => deviation.Unit == unit && deviation.Status != "Lukket"),
+                    deviations = tenantDeviations.Count(deviation => deviation.Unit == unit),
+                    score = ComplianceStore.ScoreOf(UnitQuestions(store, tenant.Id, unit))
+                }),
+                users = tenantUsers.Select(user => UserView(store, user)),
+                lcks = tenantLcks.Select(lck => LckSummary(store, lck, tenant.Id)),
+                legalChangesToHandle = store.LegalChanges.Count(change => store.GetHandling(change.Id, tenant.Id).Status is "Ikke vurdert" or "Under vurdering" or "Krever tiltak")
+            });
+        });
+
+
         // Spec §25: aggregated compliance across the selected tenants.
         api.MapGet("/overview", (string? tenantIds, ComplianceStore store) =>
         {
@@ -35,9 +79,36 @@ public static class ComplianceEndpoints
         });
 
         api.MapGet("/users", (string? tenantId, ComplianceStore store) =>
-            Results.Ok(tenantId is null ? store.Users : store.Users.Where(user => user.TenantId == tenantId)));
+            Results.Ok((tenantId is null ? store.Users : store.Users.Where(user => user.TenantId == tenantId)).Select(user => UserView(store, user))));
 
-        api.MapGet("/law-register", (ComplianceStore store) => Results.Ok(store.Register));
+        api.MapPatch("/users/{id}", (string id, UpdateUserRequest request, ComplianceStore store) =>
+            store.UpdateUser(id, request) is { } user ? Results.Ok(UserView(store, user)) : Results.NotFound());
+
+        api.MapGet("/access-options", () => Results.Ok(new { accessLevels = ComplianceStore.AccessLevels, permissionOptions = ComplianceStore.PermissionOptions }));
+
+        // Endringsstatus «Ny lovendring» følges av en kort endringstekst fra lovendringen.
+        api.MapGet("/law-register", (ComplianceStore store) => Results.Ok(store.Register.Select(requirement =>
+        {
+            var change = store.LegalChangeFor(requirement.Id);
+            return new
+            {
+                requirement.Id,
+                requirement.Area,
+                requirement.LawName,
+                requirement.DokId,
+                requirement.RefId,
+                requirement.Paragraph,
+                requirement.RequirementText,
+                requirement.ChangeStatus,
+                changeSummary = change?.Summary,
+                changeEffectiveDate = change?.EffectiveDate,
+                changeDetectedDate = change?.DetectedDate,
+                changePreviousText = change?.PreviousText,
+                changeNewText = change?.NewText,
+                changeBusinessImpact = change?.BusinessImpact,
+                changeAiGenerated = change?.AiGenerated ?? false
+            };
+        })));
 
         // Scope is global when no tenant is supplied, otherwise the detailed view for the selected tenants.
         api.MapGet("/dashboard", (string? tenantIds, ComplianceStore store) =>
@@ -288,6 +359,62 @@ public static class ComplianceEndpoints
         api.MapPatch("/legal-changes/{id}/handling/{tenantId}", (string id, string tenantId, UpdateLegalChangeRequest request, ComplianceStore store) =>
             store.UpdateHandling(id, tenantId, request) is { } handling ? Results.Ok(handling) : Results.NotFound());
 
+        // Spec §28: kort hovedrapport på tvers av virksomheter – uten score per paragraf og uten LCK-svar.
+        api.MapGet("/reports/overview", (string? tenantIds, ComplianceStore store) =>
+        {
+            var scope = Scope(store, tenantIds);
+            var questions = scope.SelectMany(id => store.QuestionsFor(id)).ToList();
+            var scopedDeviations = store.Deviations.Where(deviation => scope.Contains(deviation.TenantId)).ToList();
+
+            return Results.Ok(new
+            {
+                tenantIds = scope,
+                tenantNames = scope.Select(id => store.FindTenant(id)?.Name ?? id),
+                isGlobal = scope.Count == store.Tenants.Count,
+                totalCompliance = ComplianceStore.ScoreOf(questions),
+                questionCount = questions.Count,
+                answeredCount = questions.Count(question => question.Answer is not null),
+                responseRate = questions.Count == 0 ? 0 : Math.Round(100d * questions.Count(question => question.Answer is not null) / questions.Count, 1),
+                controlledRequirements = store.Lcks.SelectMany(lck => lck.Items).Where(item => scope.Contains(item.TenantId)).Select(item => item.RequirementId).Distinct().Count(),
+                openDeviations = scopedDeviations.Count(deviation => deviation.Status != "Lukket"),
+                closedDeviations = scopedDeviations.Count(deviation => deviation.Status == "Lukket"),
+                answers = AnswerCounts(questions),
+                byTenant = scope.Select(tenantId => new
+                {
+                    tenantId,
+                    name = store.FindTenant(tenantId)?.Name ?? tenantId,
+                    score = ComplianceStore.ScoreOf(store.QuestionsFor(tenantId))
+                }),
+                byArea = store.Lcks
+                    .SelectMany(lck => lck.Items.Where(item => scope.Contains(item.TenantId)))
+                    .GroupBy(item => store.FindRequirement(item.RequirementId)?.Area ?? "Ukjent")
+                    .Select(group => new { name = group.Key, score = ComplianceStore.ScoreOf(group.SelectMany(item => item.Questions)) })
+                    .OrderBy(row => row.name),
+                lcks = store.Lcks
+                    .Where(lck => lck.TenantIds.Any(scope.Contains))
+                    .Select(lck =>
+                    {
+                        var items = lck.Items.Where(item => scope.Contains(item.TenantId)).ToList();
+                        var lckQuestions = items.SelectMany(item => item.Questions).ToList();
+                        return new
+                        {
+                            lck.Id,
+                            lck.Name,
+                            lck.Status,
+                            lck.DueDate,
+                            periodFrom = lck.CreatedDate,
+                            periodTo = lck.ClosedAt is { } closed ? DateOnly.FromDateTime(closed.Date) : lck.DueDate,
+                            tenantNames = lck.TenantIds.Where(scope.Contains).Select(id => store.FindTenant(id)?.Name ?? id),
+                            questionCount = lckQuestions.Count,
+                            answeredCount = lckQuestions.Count(question => question.Answer is not null),
+                            responseRate = lckQuestions.Count == 0 ? 0 : Math.Round(100d * lckQuestions.Count(question => question.Answer is not null) / lckQuestions.Count, 1),
+                            compliance = ComplianceStore.ScoreOf(lckQuestions),
+                            deviations = scopedDeviations.Count(deviation => deviation.LckId == lck.Id)
+                        };
+                    })
+            });
+        });
+
         // Spec §29: LCK-sluttrapport.
         api.MapGet("/reports/lcks/{id}", (string id, string? tenantIds, ComplianceStore store) =>
         {
@@ -327,6 +454,12 @@ public static class ComplianceEndpoints
                 answeredCount = questions.Count(question => question.Answer is not null),
                 responseRate = questions.Count == 0 ? 0 : Math.Round(100d * questions.Count(question => question.Answer is not null) / questions.Count, 1),
                 totalCompliance = ComplianceStore.ScoreOf(questions),
+                answers = AnswerCounts(questions),
+                deviationsByStatus = ComplianceStore.DeviationStatuses.Select(status => new
+                {
+                    status,
+                    count = store.Deviations.Count(deviation => deviation.LckId == lck.Id && scope.Contains(deviation.TenantId) && deviation.Status == status)
+                }),
                 byTenant = scope.Select(tenantId => new
                 {
                     tenantId,
@@ -377,8 +510,41 @@ public static class ComplianceEndpoints
             ? [.. store.Tenants.Where(tenant => ids.Contains(tenant.Id)).Select(tenant => tenant.Id)]
             : [.. store.Tenants.Select(tenant => tenant.Id)];
 
+    /// <summary>Fordeling av svartyper, brukes i rapportene for fargekodede seksjoner.</summary>
+    private static object AnswerCounts(IReadOnlyCollection<LckQuestion> questions) => new
+    {
+        yes = questions.Count(question => question.Answer == "Ja"),
+        partial = questions.Count(question => question.Answer == "Delvis"),
+        no = questions.Count(question => question.Answer == "Nei"),
+        notRelevant = questions.Count(question => question.Answer == "Ikke relevant"),
+        unanswered = questions.Count(question => question.Answer is null)
+    };
+
     private static IEnumerable<LckQuestion> QuestionsIn(ComplianceStore store, IEnumerable<string> tenantIds, IEnumerable<LawRequirement> requirements) =>
         tenantIds.SelectMany(tenantId => requirements.SelectMany(requirement => store.QuestionsFor(tenantId, requirement.Id)));
+
+    /// <summary>Spørsmål besvart av brukere i en gitt avdeling/enhet.</summary>
+    private static IEnumerable<LckQuestion> UnitQuestions(ComplianceStore store, string tenantId, string unit)
+    {
+        var unitUserIds = store.Users.Where(user => user.TenantId == tenantId && user.Unit == unit).Select(user => user.Id).ToHashSet();
+        return store.QuestionsFor(tenantId).Where(question => question.ResponderId is { } responder && unitUserIds.Contains(responder));
+    }
+
+    private static object UserView(ComplianceStore store, DemoUser user) => new
+    {
+        user.Id,
+        user.TenantId,
+        tenantName = store.FindTenant(user.TenantId)?.Name ?? user.TenantId,
+        user.Name,
+        user.Role,
+        user.Unit,
+        user.Email,
+        user.AccessLevel,
+        user.Permissions,
+        user.Active,
+        openDeviations = store.Deviations.Count(deviation => deviation.ResponsibleId == user.Id && deviation.Status != "Lukket"),
+        answeredQuestions = store.QuestionsFor(user.TenantId).Count(question => question.ResponderId == user.Id && question.Answer is not null)
+    };
 
     private static object TenantSummary(ComplianceStore store, Tenant tenant)
     {
