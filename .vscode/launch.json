@@ -1,0 +1,12 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "LovdataPocApi",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "${workspaceFolder}/LovdataPocApi/bin/Debug/net10.0/LovdataPocApi.dll",
+            "cwd": "${workspaceFolder}/LovdataPocApi"
+        }
+    ]
+}
